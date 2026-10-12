@@ -81,7 +81,25 @@ test('他ホスト・http・svg の画像は取得せず除く', async () => {
 test('画像の Content-Type が text/html なら失敗する', async () => {
   const src = 'https://images.microcms-assets.io/x.png';
   respond = api([item('a', '2026-01-01T00:00:00.000Z', `<img src="${src}">`)], { [src]: 'text/html' });
-  await assert.rejects(fetchNews('example', 'key'), { type: 'image_rejected' });
+  await assert.rejects(fetchNews('example', 'key'), { type: 'image_rejected', target: 'image', url: src });
+});
+
+test('画像が 10 MB を超えたら失敗する', async () => {
+  const src = 'https://images.microcms-assets.io/x.png';
+  respond = (url) =>
+    url.includes('.microcms.io/api/')
+      ? Response.json({ contents: [item('a', '2026-01-01T00:00:00.000Z', `<img src="${src}">`)] })
+      : new Response(new Uint8Array(10 * 1024 * 1024 + 1), { headers: { 'content-type': 'image/png' } });
+  await assert.rejects(fetchNews('example', 'key'), { type: 'image_rejected', target: 'image', url: src });
+});
+
+test('画像が 404 なら失敗し、失敗箇所に画像と URL を載せる', async () => {
+  const src = 'https://images.microcms-assets.io/x.png';
+  respond = (url) =>
+    url.includes('.microcms.io/api/')
+      ? Response.json({ contents: [item('a', '2026-01-01T00:00:00.000Z', `<img src="${src}">`)] })
+      : new Response('', { status: 404 });
+  await assert.rejects(fetchNews('example', 'key'), { type: 'http_status_404', target: 'image', url: src });
 });
 
 test('応答の形が不正なら失敗する', async () => {
@@ -93,7 +111,7 @@ test('応答の形が不正なら失敗する', async () => {
 
 test('API が 503 なら失敗する', async () => {
   respond = () => new Response('', { status: 503 });
-  await assert.rejects(fetchNews('example', 'key'), { type: 'http_status_503', transient: true });
+  await assert.rejects(fetchNews('example', 'key'), { type: 'http_status_503', transient: true, target: 'api', url: undefined });
 });
 
 const run = (extra) => {

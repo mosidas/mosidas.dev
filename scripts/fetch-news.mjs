@@ -16,18 +16,24 @@ const MIME_BY_EXT = {
 const TIMEOUT_MS = 30_000;
 
 class FetchNewsError extends Error {
-  /** @param {string} type @param {boolean} transient */
-  constructor(type, transient) {
+  /**
+   * @param {string} type @param {boolean} transient
+   * @param {'api' | 'image'} [target] 失敗した取得先
+   * @param {string} [url] 画像の URL(公開アセットなのでログに載せてよい。API の URL は渡さない)
+   */
+  constructor(type, transient, target, url) {
     super(type);
     this.type = type;
     this.transient = transient;
+    this.target = target;
+    this.url = url;
   }
 }
 
-/** @param {Response} res */
-function assertOk(res) {
+/** @param {Response} res @param {'api' | 'image'} target @param {string} [url] */
+function assertOk(res, target, url) {
   if (!res.ok) {
-    throw new FetchNewsError(`http_status_${res.status}`, res.status >= 500 || res.status === 429);
+    throw new FetchNewsError(`http_status_${res.status}`, res.status >= 500 || res.status === 429, target, url);
   }
 }
 
@@ -111,17 +117,17 @@ function sanitizeBody(html, downloads) {
 /** @param {string} href @param {string} name */
 async function downloadImage(href, name) {
   const res = await fetch(href, { redirect: 'error', signal: AbortSignal.timeout(TIMEOUT_MS) });
-  assertOk(res);
+  assertOk(res, 'image', href);
   const ext = /** @type {keyof typeof MIME_BY_EXT} */ (name.slice(name.lastIndexOf('.') + 1));
   const type = res.headers.get('content-type')?.split(';')[0].trim().toLowerCase();
   if (type !== MIME_BY_EXT[ext] || Number(res.headers.get('content-length') ?? 0) > MAX_IMAGE_BYTES || !res.body) {
-    throw new FetchNewsError('image_rejected', false);
+    throw new FetchNewsError('image_rejected', false, 'image', href);
   }
   const chunks = [];
   let size = 0;
   for await (const chunk of res.body) {
     size += chunk.byteLength;
-    if (size > MAX_IMAGE_BYTES) throw new FetchNewsError('image_rejected', false);
+    if (size > MAX_IMAGE_BYTES) throw new FetchNewsError('image_rejected', false, 'image', href);
     chunks.push(chunk);
   }
   return new Uint8Array(Buffer.concat(chunks));
@@ -137,7 +143,7 @@ export async function fetchNews(serviceDomain, apiKey) {
     `https://${serviceDomain}.microcms.io/api/v1/news?orders=-publishedAt&limit=10&fields=id,title,body,publishedAt`,
     { headers: { 'X-MICROCMS-API-KEY': apiKey }, redirect: 'error', signal: AbortSignal.timeout(TIMEOUT_MS) },
   );
-  assertOk(res);
+  assertOk(res, 'api');
   let data;
   try {
     data = await res.json();
@@ -168,12 +174,16 @@ const log = (fields) => (fields.level === 'info' ? console.log : console.error)(
 function logError(err) {
   const type = err instanceof FetchNewsError ? err.type : err instanceof Error ? err.name : 'unknown';
   const transient = err instanceof FetchNewsError ? err.transient : type === 'TypeError' || type === 'TimeoutError';
+  const cause = err instanceof Error && /** @type {{ code?: unknown } | undefined} */ (err.cause)?.code;
   log({
     level: 'error',
     msg: 'お知らせの取得に失敗した',
     'error.type': type,
     'app.error.origin': 'system',
     'app.error.transient': transient,
+    ...(err instanceof FetchNewsError && err.target && { 'app.fetch.target': err.target }),
+    ...(err instanceof FetchNewsError && err.url && { 'url.full': err.url }),
+    ...(typeof cause === 'string' && { 'app.error.cause': cause }),
   });
 }
 
