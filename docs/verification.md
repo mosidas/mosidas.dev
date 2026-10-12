@@ -96,3 +96,71 @@ Workers Builds のデプロイ完了は 07:49:53 UTC である(`npx wrangler dep
 
 - `run_worker_first` によるリクエスト数の消費は、1. の 3 つ目の箇条を参照する。
 - Workers Builds のデプロイトークンで、カスタムドメインの作成までできた。
+
+## 6. お知らせの投稿(microCMS)
+
+### 6.1 方式
+
+`npm run build` は `node scripts/fetch-news.mjs && astro build` を実行する。
+ビルド前スクリプト `scripts/fetch-news.mjs` が、microCMS の API `news` からお知らせを取得する。
+取得は `orders=-publishedAt&limit=10` で、`publishedAt` の降順に 10 件である。取得する項目は `id`・`title`・`body`・`publishedAt` である。
+本文は sanitize-html で許可リスト方式にサニタイズする。許可リストに無いタグと属性は除き、`h1`〜`h3` は `h4` に置き換える。
+本文の画像のうち、`https://images.microcms-assets.io/` のものはビルド時に取得する。
+取得した画像は `public/news/images/<URL の sha256 の先頭 16 桁>.<拡張子>` に保存し、`src` をサイト内のパスに書き換える。
+そのため画像は microCMS でなく Cloudflare から配信される。
+それ以外のホストの画像は本文から除く。
+取得結果は `src/data/news.json` に書き、トップページ(`src/pages/index.astro`)はそれを読む。
+
+認証情報の有無と取得の成否で、ビルドの挙動は次のとおり分かれる。
+
+| 条件 | 挙動 |
+| :-- | :-- |
+| 認証情報(`MICROCMS_SERVICE_DOMAIN`・`MICROCMS_API_KEY`)が無く、`WORKERS_CI` も無い(ローカル・GitHub Actions) | 警告を出して取得を省き、リポジトリにあるスナップショットの `src/data/news.json` でビルドする |
+| `WORKERS_CI` があり、認証情報が無い | `missing_credentials` を出力して終了コード 1 で終わり、ビルドが失敗する。前回の配信が続く |
+| 取得に失敗した | 失敗の種類を出力して終了コード 1 で終わり、ビルドが失敗する。前回の配信が続く |
+
+再ビルドは、Cloudflare Workers Builds の Deploy Hook(`main`)で起動する。
+Deploy Hook の URL を、microCMS の API `news` の Webhook にカスタム通知として登録する。通知タイミングは公開・公開終了・削除である。
+
+### 6.2 手順
+
+次の手順はユーザーがダッシュボードで行う。
+
+1. Cloudflare の Worker `mosidas-dev` の Settings > Build > Variables and Secrets に、`MICROCMS_SERVICE_DOMAIN`(テキスト)と `MICROCMS_API_KEY`(シークレット)を登録する。API キーは GET 権限だけのものにする。登録は実装のマージ前に行う(6.5 を参照)。
+2. 実装の PR #6 をマージする。
+3. Settings > Build > Deploy Hooks で、`main` のフックを作る。
+4. microCMS の API `news` の API 設定 > Webhook に、カスタム通知として Deploy Hook の URL を登録する。通知タイミングは公開・公開終了・削除にする。
+5. microCMS でお知らせを公開し、トップページの一覧に表示されることを `curl` で確かめる。
+
+`MICROCMS_SERVICE_DOMAIN` には microCMS のサービスドメインを入れる。
+
+### 6.3 無料プラン(Hobby)での Webhook
+
+microCMS の Hobby プランで、Deploy Hook の URL をカスタム通知の Webhook として登録できた。
+公開の操作で Deploy Hook が起動したことを、Cloudflare のダッシュボードで確認した。
+代替の手段は不要だった。
+
+出典:
+
+- [Webhook 設定 · microCMS ドキュメント](https://document.microcms.io/manual/webhook-setting)
+- [Deploy Hooks · Cloudflare Workers docs](https://developers.cloudflare.com/workers/ci-cd/builds/deploy-hooks/)
+
+### 6.4 「公開」から掲載までの時間
+
+| 計測日 | 操作 | 公開の時刻 | 掲載を確認した時刻 | 所要時間 |
+| :-- | :-- | :-- | :-- | :-- |
+| 2026-10-12 | お知らせ「test」の題名を「test2」に変えて公開 | 09:30:25 UTC(`revisedAt` 09:30:25.299Z) | 09:31:26 UTC(`curl`、10 秒間隔の監視) | 51〜61 秒 |
+
+新規作成でなく既存の記事を編集して公開したため、公開の時刻には API の `publishedAt`(06:47:56 UTC)でなく `revisedAt` を使った。
+監視は 10 秒間隔で `curl` を実行し、`<h3>` が test2 になった最初の時刻を取った。そのため所要時間は幅で示す。
+09:33:51 UTC に `curl https://mosidas.dev/` を実行し、次のことを確かめた。
+
+- 一覧の先頭が「test2」で、`<time>` が 2026年10月12日である。
+- 本文の画像が `/news/images/880af8b6c3282a3d.jpg` である。
+- この画像に `curl -I` を実行すると、200 と `content-type: image/jpeg` が返る。画像がサイトのドメインから配信されている。
+
+### 6.5 注意点
+
+- PR #6 のマージ直後の `main` のビルド(09:18:38〜09:19:57 UTC)は、ビルド変数が未登録だったため `missing_credentials` で失敗し、前回の配信が続いた。ビルド変数を登録して Retry build を実行し、09:28:44 UTC までにお知らせの一覧が配信された。ビルド変数は実装のマージ前に登録する。
+- 確認した端末では DNS の負のキャッシュが残っていたため、5.3 と同じく `curl` に `--resolve mosidas.dev:443:<dig +short mosidas.dev A の値>` を付けて実行した。
+- Workers Builds の非 production ブランチ(PR のブランチ)のチェックは、PR #2・#3・#6 で失敗している。原因はダッシュボードのビルドログで確認しておらず、継続課題である。
