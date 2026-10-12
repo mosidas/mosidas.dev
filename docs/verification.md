@@ -205,7 +205,10 @@ Durable Object の呼び出しが失敗したときは、503 で拒否する(fai
 この方式にした経緯は 7.4 に書く。
 
 問い合わせの内容は Cloudflare 側に保存しない。
-Durable Object には受付の時刻だけを保存する。保存した時刻は、最後の受付から 60 秒後の alarm で削除する。
+Durable Object には受付の時刻だけを保存する。
+受付のたびに、最後の受付の 60 秒後に alarm を張る。
+alarm は、60 秒の窓より古い時刻だけを捨てる。
+残りがあれば最古の時刻の 60 秒後に alarm を張り直し、残りが無ければ保存した時刻を削除する(コミット `d849147`)。
 
 ### 7.2 手順
 
@@ -258,7 +261,7 @@ Free プランで、Rate Limiting バインディングと `send_email` を含�
 
 PR #8 の時点では、Rate Limiting バインディング(`ratelimits`)でレート制限を設けた。設定は 60 秒に 3 回まで、キーは `cf-connecting-ip` である。
 その後、ゾーンの WAF レート制限ルールも試した。
-どちらも 429 を一度も返さなかった。
+次の試験では、どちらも 429 を一度も返さなかった。
 
 | 方式 | 試験の時刻(UTC) | 送った要求 | 結果 |
 | :-- | :-- | :-- | :-- |
@@ -266,26 +269,82 @@ PR #8 の時点では、Rate Limiting バインディング(`ratelimits`)でレ�
 | Rate Limiting バインディング | 記録なし | 同一 IP から間隔なしで 20 回連続 | 429 は 0 回 |
 | WAF レート制限ルール | 10:32〜10:35 | 60 回以上 | 429 は 0 回 |
 
+WAF レート制限ルールは、ユーザーが 10:32:13 UTC に作成した。
+Free プランで作れる 1 件を使い、パスは `/api/contact`、IP ごとに 10 秒に 3 回まで、超えたら Block とした。
+ルールの Analytics では、149 件の要求がルールに一致した。遮断は 0 件だった。
+
+429 が出なかったのは、試験方法の欠陥による。
+確認した端末は、TCP 接続ごとに接続元 IP が変わる。
+`/cdn-cgi/trace` を 5 回取得すると、接続元 IP は 5 回とも異なった。
+
+- 203.25.124.15
+- 203.25.124.21
+- 203.25.124.81
+- 203.25.124.86
+- 212.32.76.20
+
+上の試験は `curl` を要求ごとに起動したため、要求は毎回別の IP として数えられた。
+Workers Logs の tail でも、要求ごとに別の durableObjectId が呼ばれていた。
+したがって、要求ごとに接続する試験では、IP 単位の制限はどれも発動しなかった。
+Rate Limiting バインディング・WAF ルール・Durable Objects のいずれも同じである。
+
+対策として、Durable Objects で IP ごとに数える方式に置き換えた(7.1)。
+PR #9 は 11:02:03 UTC にマージした(マージコミット `3737313`)。
+Workers Builds は 11:03:21 UTC に成功した。
+migrations v1(ContactRateLimiter、SQLite)は、エラーなく適用された。
+
+デプロイ後、本番で同一の TCP 接続から POST /api/contact を送り、次の結果を得た。
+
+| 時刻(UTC) | 送った要求 | 結果 | 429 の本文 |
+| :-- | :-- | :-- | :-- |
+| 11:08:11 | 同一接続(keep-alive)から 6 回 | 403 403 403 429 429 429 | 「error code: 1015」 |
+| 11:08:49〜11:09:00 | 同一接続から 5 回 | 429 が 5 回 | `limited` ページ |
+| 11:12:44〜11:13:00 | 単一接続から 4 秒間隔で 5 回(項目は空) | 400 400 400 429 429 | `limited` ページ |
+
+11:08:11 の 429 は、ゾーンの WAF レート制限ルール(10 秒に 3 回で Block)による遮断である。
+WAF ルールは有効であり、削除せずに残してある。
+
+11:08:49 の計測は、1 回目から 429 になった。
+直前の 6 回のうち 3 回を、Durable Object が受付として数えていたためである。
+`limited` ページの title は「送信が多すぎる | mosidas」である。
+
+11:12:44 の計測は、curl 8.7.1 の `--rate 15/m` で 4 秒間隔にした。
+local port は 58439 で、`num_connects` は 1 回目だけ 1 だった。
+429 の cf-ray は `a495ac20cabe8169-NRT` と `a495ac39db1a8169-NRT` である。
+4 秒間隔は、WAF ルール(10 秒に 3 回)に掛からない。
+したがって、この 429 は Durable Objects によるものである。
+
+429 を返した層は、本文で見分ける。
+
+| 429 の本文 | 遮断した層 |
+| :-- | :-- |
+| 「error code: 1015」 | ゾーンの WAF レート制限ルール |
+| 「送信が多すぎる」の結果ページ(`limited`) | Worker(Durable Objects) |
+
+Rate Limiting バインディングは、同一接続での試験をしていない。
+試験の前に、PR #9 で Durable Objects に置き換えたためである。
+制限が発動していた可能性はあるが、確かめていない。
 公式文書は、Rate Limiting バインディングを次のように説明している。
 
 > permissive, eventually consistent, and intentionally designed to not be used as an accurate accounting system
 
-WAF レート制限ルールは、ユーザーが 10:32:13 UTC に作成した。
-Free プランで作れる 1 件を使い、パスは `/api/contact`、IP ごとに 10 秒に 3 回まで、超えたら Block とした。
-ルールの Analytics では、149 件の要求がルールに一致した。遮断は 0 件だった。
-Free プランでは数え方(cached assets への適用)を変更できない。
-そのため、Worker が応答する要求は、ルールに一致しても閾値の判定の計数に入らないと推定する。
-WAF ルールは削除せずに残してある。
+本番のレート制限は、1 つの接続で送って確かめる。
+次のコマンドは、同じ URL を 5 回並べ、4 秒間隔で 1 つの接続から送る。
+DNS の負のキャッシュがあるときだけ、`--resolve` を付ける。
 
-対策として、Durable Objects で IP ごとに数える方式に置き換えた(7.1)。
-本番での計測は、マージ後に行う。計測では、同一 IP からの 60 秒以内の 4 回目の POST が 429 になることを確かめる。結果の表は後続の PR で足す。
+```sh
+curl -s --rate 15/m -H 'Origin: https://mosidas.dev' -H 'Content-Type: application/x-www-form-urlencoded' -d 'name=&email=&message=' -o /dev/null -w '%{http_code} %{num_connects}\n' https://mosidas.dev/api/contact https://mosidas.dev/api/contact https://mosidas.dev/api/contact https://mosidas.dev/api/contact https://mosidas.dev/api/contact
+```
+
+期待する結果は、400 が 3 回、続いて 429 が 2 回である。
+`num_connects` は 1 回目だけ 1 になる。
 
 推進室の資料(homepage-replace)は「レート制限を設ける」と書いている。
-この要求は、Cloudflare の Rate Limiting バインディングと WAF ルールでは、Free プランで実現できなかった。
-資料の記述に、Durable Objects による自前の計数が必要である旨を補う必要がある。
+資料には「問い合わせ API のレート制限は Durable Objects で実装し、ゾーンの WAF レート制限ルールを併用する。Free プランで実現できる」と反映する。
 
 ### 7.5 注意点
 
+- レート制限は、Durable Objects(Worker 内で確実に数える)と WAF ルール(ゾーン、Free の 1 件)の 2 層を残す。Rate Limiting バインディングには戻さない。効果を確かめる手段が乏しく、公式文書も「permissive, eventually consistent」としているためである。
 - デプロイの 504 は Cloudflare 側の一時障害で、Retry build で回復した。
 - Workers Builds の非 production ブランチのチェックの失敗(6.5)は、PR #7・#8 でも続いている。
 - 確認した端末では DNS の負のキャッシュが残っていたため、5.3・6.5 と同じく `curl` に `--resolve` を付けて実行した。
@@ -296,3 +355,5 @@ WAF ルールは削除せずに残してある。
 - [Send emails from Workers · Cloudflare Email Routing docs](https://developers.cloudflare.com/email-routing/email-workers/send-email-workers/)
 - [Pricing · Cloudflare Durable Objects docs](https://developers.cloudflare.com/durable-objects/platform/pricing/)
 - [Turnstile · Cloudflare docs](https://developers.cloudflare.com/turnstile/)
+- [Alarms · Cloudflare Durable Objects docs](https://developers.cloudflare.com/durable-objects/api/alarms/)
+- [Rate limiting rules · Cloudflare WAF docs](https://developers.cloudflare.com/waf/rate-limiting-rules/)
