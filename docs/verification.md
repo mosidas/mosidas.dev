@@ -370,6 +370,8 @@ curl -s --rate 15/m -H 'Origin: https://mosidas.dev' -H 'Content-Type: applicati
 Cron Triggers は `src/worker.ts` の `scheduled` を起動する。
 `scheduled` は、Worker のシークレット `DEPLOY_HOOK_URL` に POST する。値は Workers Builds の Deploy Hook(`main`)の URL である。
 URL が `https://api.cloudflare.com/client/v4/workers/builds/deploy_hooks/` で始まらなければ、呼ばずに失敗させる。
+一時的な失敗(429・5xx・`fetch` の例外)のときだけ、10 秒の間隔をあけて最大 3 回まで試す(コミット `a219f30`)。
+3xx は失敗として扱い、再試行しない。
 
 ビルドコマンド `npm run build` は、`node scripts/build.mjs` を実行する。
 `scripts/build.mjs` は、次の順に処理する。
@@ -402,7 +404,7 @@ fine-grained PAT で、対象は mosidas/mosidas.dev だけ、権限は Contents
 | `astro build` の失敗 | `build.mjs` が Issue「ビルドに失敗した(build)」を作る |
 | `SNAPSHOT_GITHUB_TOKEN` が未登録 | `missing_credentials` でビルドが失敗する。Issue は作れない |
 | clone・`npm ci`・`wrangler deploy` の失敗、時間切れ | 検知しない |
-| Cron Triggers から Deploy Hook の呼び出しの失敗 | `scheduled` の error ログと Cron Events に残る |
+| Cron Triggers から Deploy Hook の呼び出しの失敗 | `scheduled` の error ログと Cron Events に残る。ログには試行回数 `app.build.attempts` が出る |
 
 見送った案と理由は次のとおりである。
 
@@ -425,18 +427,20 @@ fine-grained PAT で、対象は mosidas/mosidas.dev だけ、権限は Contents
 4. PR をマージする。
 5. マージ後のビルドが成功し、`content-snapshot` ブランチが作られたことを確かめる(`gh api repos/mosidas/mosidas.dev/branches/content-snapshot`)。
 6. 任意で、`content-snapshot` の削除と非 fast-forward の push を禁じるルールセットを作る。
-7. Settings > Build > Branch control で、非 production ブランチのビルドから `content-snapshot` を除外する。除外しないと、orphan ブランチには `package.json` が無いため、非 production のビルドが毎日失敗して通知が届く。ブランチを指定して除外する設定が無ければ、同じ画面の Enable Preview Builds を外す(PR のプレビューも止まる)。除外できたかは、次の `content-snapshot` への push のあとにビルドの一覧で確かめる。
+7. Settings > Build の Builds for Preview branches を None にした。設定しないと、orphan ブランチの `content-snapshot` には `package.json` が無いため、非 production のビルドが毎日失敗して通知が届く。ブランチ名で除外する設定は無かった。PR の検証は GitHub Actions の check で足りる。
 
 ### 8.3 計測
 
-計測は後続の PR で記入する。
+時刻はすべて 2026-10-12 UTC である。
 
 | 項目 | 確かめ方 | 結果 |
 | :-- | :-- | :-- |
-| AC1: Cron Triggers の起動 | Worker の Logs または Metrics の Cron Triggers(Cron Events)に起動が記録される | 未計測 |
-| AC2: コンテンツの保存 | microCMS の変更時刻と、`content-snapshot` のコミット時刻を比べる | 未計測 |
-| AC3: 失敗時の配信の継続 | ビルドのシークレット `MICROCMS_API_KEY` を一時的に誤った値にして Deploy Hook を呼び(`http_status_401`)、サイトが前回の内容で閲覧できることを確かめる。確かめたら `MICROCMS_API_KEY` を元の値に戻す | 未計測 |
-| AC4: 失敗の通知 | AC3 と同じ操作で Issue が作られることを確かめる。起点はビルドログの error 行の時刻、終点は `gh issue view <番号> --json createdAt` の値である。Issue の error.type は `exit_code_1` で、`http_status_401` は本文の stderr の末尾に出る | 未計測 |
+| AC1: Cron Triggers の起動 | Worker の Logs または Metrics の Cron Triggers(Cron Events)に起動が記録される | 21:00:38 に起動したが、`outcome: exception`・`wallTimeMs: 1`・「Deploy Hook の呼び出しに失敗した: TypeError」で失敗した。原因は、Workers の `fetch` が `redirect: 'error'` を受け付けないことである。コミット `a219f30` で `manual` に直した。修正後の起動は、翌日の Cron(2026-10-13 21:00 UTC)で確かめる |
+| AC2: コンテンツの保存 | microCMS の変更時刻と、`content-snapshot` のコミット時刻を比べる | PR #11 を 12:12:50 にマージした(マージコミット `f9a4711`)。Workers Builds は 12:14:03 に成功した。`content-snapshot` の最初のコミット `185a17a` は 12:13:23 で、`src/data/news.json` と `public/news/images/880af8b6c3282a3d.jpg` の 2 ファイルを持つ。以後は内容が変わったときだけコミットされる。12:19:19 の再ビルド `3c4ab7eb` では、内容が同じためコミットされなかった |
+| AC3: 失敗時の配信の継続 | ビルドのシークレット `MICROCMS_API_KEY` を一時的に誤った値にして Deploy Hook を呼び(`http_status_401`)、サイトが前回の内容で閲覧できることを確かめる。確かめたら `MICROCMS_API_KEY` を元の値に戻す | `MICROCMS_API_KEY` を誤った値にして、12:16:24 に Deploy Hook を POST した(ビルド `e5188e3f`)。ビルドは fetch の段階で `http_status_401` により失敗した。12:17:01 に、サイトは 200 で前回の内容(お知らせ test2)を配信していた。値を戻した 12:19:19 の再ビルドは成功し、新しい Issue は作られなかった |
+| AC4: 失敗の通知 | AC3 と同じ操作で Issue が作られることを確かめる。起点はビルドログの error 行の時刻、終点は `gh issue view <番号> --json createdAt` の値である。Issue の error.type は `exit_code_1` で、`http_status_401` は本文の stderr の末尾に出る | 手段は GitHub REST API(Issues)である。Issue #12「ビルドに失敗した(fetch)」が 12:16:53 に作られた(POST から 29 秒)。本文は stage=fetch、error.type=`exit_code_1`、ビルド ID、stderr の末尾(`http_status_401`)である。試験のため Issue は閉じた |
+
+Worker の Logs はダッシュボードで読んだ。wrangler の OAuth トークンには、観測ログを読むスコープが無い。
 
 ### 8.4 注意点
 
@@ -444,6 +448,7 @@ fine-grained PAT で、対象は mosidas/mosidas.dev だけ、権限は Contents
 - PAT の有効期限が切れると、`github_status_401` でビルドが失敗し、Issue も作れない。期限の前に PAT を再発行し、ビルドのシークレット `SNAPSHOT_GITHUB_TOKEN` を置き換える。
 - PAT または Deploy Hook の URL が漏えいしたときは、GitHub で PAT を失効させ、Cloudflare で Deploy Hook を削除して作り直す。作り直した URL は `DEPLOY_HOOK_URL` と microCMS の Webhook に登録し直す。
 - 同時に走らせるビルドは 1 本にする。2 本が重なると、後のビルドの ref の更新(PATCH)が 422 で失敗し、Issue が作られる。
+- Deploy Hook が 5xx を返しながらビルドを始めていたときは、再試行でビルドが重複しうる(再試行は最大 2 回)。
 
 スナップショットからの復元は、次の手順で行う。自動化は対象外である。
 
