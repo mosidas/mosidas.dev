@@ -10,13 +10,15 @@
     "build": "astro build",
     "preview": "astro preview",
     "lint": "astro check",
-    "test": "astro build && node --test test/build.test.mjs"
+    "test": "astro build && node --test test/build.test.mjs",
+    "prepare": "husky"
   },
   "dependencies": {
     "astro": "^7.3.8"
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.10",
+    "husky": "^9.1.7",
     "typescript": "^6.0.3",
     "wrangler": "^4.149.0"
   }
