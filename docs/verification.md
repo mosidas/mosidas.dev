@@ -180,9 +180,10 @@ microCMS の Hobby プランで、Deploy Hook の URL をカスタム通知の W
 6. 項目を検証し、不備を 400 で拒否する。
 7. Turnstile のトークンが無ければ 403 で拒否する。
 8. siteverify の結果に応じて 403 または 503 を返す。
-9. メールを送信し、303 で `/contact/sent/` へ移す。
+9. メールを送信する。送信に失敗したら 502 を返す。成功したら 303 で `/contact/sent/` へ移す。
 
-失敗したときは、静的な結果ページ(`/contact/{invalid,rejected,limited,failed}/`)に状態コードを付けて返す。
+405 を除き、失敗したときは、静的な結果ページ(`/contact/{invalid,rejected,limited,failed}/`)に状態コードを付けて返す。
+405 は本文の無い応答である。
 
 メール送信には、Cloudflare Email Routing の `send_email` バインディングを使う。設定は `wrangler.jsonc` の `send_email: [{ name: "EMAIL" }]` である。
 送信先は、Email Routing で検証済みの宛先(Destination addresses)に限られる。
@@ -197,7 +198,7 @@ MailChannels は Workers 向けの無料提供が終わったため見送った�
 ボット対策には Turnstile を使う。Widget mode は Managed である。
 サイトキーはビルド変数 `PUBLIC_TURNSTILE_SITE_KEY`、シークレットキーは Worker のシークレット `TURNSTILE_SECRET_KEY` に登録する。
 
-レート制限は、IP ごとの Durable Object で数える(本 PR、コミット `e9ef8e6`)。
+レート制限は、IP ごとの Durable Object で数える(PR #9、コミット `e9ef8e6`)。
 Durable Object は SQLite バックエンドで、Free プランで利用できる。
 同一 IP からの受付は 60 秒に 3 回までとし、4 回目以降は 429 と `limited` の結果ページを返す。
 Durable Object の呼び出しが失敗したときは、503 で拒否する(fail closed)。
@@ -242,7 +243,7 @@ Free プランで、Rate Limiting バインディングと `send_email` を含�
 | 件名 | mosidas.dev への問い合わせ |
 | Reply-To | 送信者が入力したアドレス |
 
-送信から到着までは 1 分以内である。送信の時刻は計測していない。
+ユーザーの申告では、送信から到着までは 1 分以内である。送信の時刻は計測していない。
 
 拒否の経路は、`curl` で次のとおり確かめた。
 
@@ -269,13 +270,11 @@ PR #8 の時点では、Rate Limiting バインディング(`ratelimits`)でレ�
 
 > permissive, eventually consistent, and intentionally designed to not be used as an accurate accounting system
 
-出典: [Rate Limiting · Cloudflare Workers docs](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/)
-
 WAF レート制限ルールは、ユーザーが 10:32:13 UTC に作成した。
 Free プランで作れる 1 件を使い、パスは `/api/contact`、IP ごとに 10 秒に 3 回まで、超えたら Block とした。
-ルールの Analytics では 149 件が一致したが、遮断は 0 件だった。
+ルールの Analytics では、149 件の要求がルールに一致した。遮断は 0 件だった。
 Free プランでは数え方(cached assets への適用)を変更できない。
-そのため、Worker が応答する要求はルールに数えられないと推定する。
+そのため、Worker が応答する要求は、ルールに一致しても閾値の判定の計数に入らないと推定する。
 WAF ルールは削除せずに残してある。
 
 対策として、Durable Objects で IP ごとに数える方式に置き換えた(7.1)。
