@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { projects } from '../src/data/projects.ts';
+import news from '../src/data/news.json' with { type: 'json' };
 
 const html = await readFile(new URL('../dist/index.html', import.meta.url), 'utf8');
 
@@ -32,6 +33,17 @@ test('各制作物が 1 つ以上の使用技術を持ち、dist/index.html に�
       const escaped = tech.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       assert.match(html, new RegExp(`<li[^>]*>${escaped}</li>`), `使用技術がない: ${name} の ${tech}`);
     }
+  }
+});
+
+test('dist/index.html がお知らせの見出しと各お知らせの題名・日付を含む', () => {
+  assert.match(html, /<h2[^>]*id="news-heading"[^>]*>お知らせ<\/h2>/);
+  if (news.length === 0) {
+    assert.ok(html.includes('お知らせはまだない。'));
+  }
+  for (const { title, publishedAt } of news) {
+    assert.ok(html.includes(title), `題名がない: ${title}`);
+    assert.ok(html.includes(`datetime="${publishedAt}"`), `日付がない: ${publishedAt}`);
   }
 });
 

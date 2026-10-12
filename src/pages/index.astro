@@ -1,5 +1,9 @@
 ---
 import { projects } from '../data/projects';
+import newsJson from '../data/news.json';
+
+const news: { id: string; title: string; publishedAt: string; body: string }[] = newsJson;
+const dateFormat = new Intl.DateTimeFormat('ja-JP', { timeZone: 'Asia/Tokyo', dateStyle: 'long' });
 ---
 
 <html lang="ja">
@@ -27,6 +31,25 @@ import { projects } from '../data/projects';
           ))
         }
       </ul>
+      <section class="news" aria-labelledby="news-heading">
+        <h2 id="news-heading">お知らせ</h2>
+        {
+          news.length > 0 ? (
+            <ol class="news-list">
+              {news.map((item) => (
+                <li>
+                  <time datetime={item.publishedAt}>{dateFormat.format(new Date(item.publishedAt))}</time>
+                  <h3>{item.title}</h3>
+                  {/* body は scripts/fetch-news.mjs でサニタイズ済み */}
+                  <div class="news-body" set:html={item.body} />
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <p>お知らせはまだない。</p>
+          )
+        }
+      </section>
     </main>
   </body>
 </html>
@@ -114,6 +137,39 @@ import { projects } from '../data/projects';
     font-size: 0.8125rem;
     line-height: 1.5;
     color: var(--muted);
+  }
+
+  .news {
+    margin-top: 48px;
+  }
+
+  .news-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  time {
+    display: block;
+    margin: 0 0 4px;
+    font-size: 0.875rem;
+    color: var(--muted);
+  }
+
+  h3 {
+    margin: 0 0 8px;
+    font-size: 1.0625rem;
+    font-weight: 600;
+    line-height: 1.4;
+  }
+
+  .news-body :global(:is(p, ul, ol)) {
+    margin: 0 0 8px;
+  }
+
+  .news-body :global(img) {
+    max-width: 100%;
+    height: auto;
   }
 
   a {
