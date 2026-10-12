@@ -5,6 +5,7 @@ interface Env {
   CONTACT_LIMITER: { idFromName(name: string): unknown; get(id: unknown): { fetch(request: Request): Promise<Response> } };
   TURNSTILE_SECRET_KEY?: string;
   CONTACT_TO?: string;
+  DEPLOY_HOOK_URL?: string;
 }
 
 const ORIGIN = 'https://mosidas.dev';
@@ -12,6 +13,7 @@ const RESULT_PAGES = { invalid: 'invalid', rejected: 'rejected', limited: 'limit
 const LABELS = { name: '名前', email: 'メールアドレス', message: '本文' } as const;
 const CONTROL = /\p{Cc}/u;
 const EMAIL = /^[^\s@<>()",;:\\]+@[^\s@<>()",;:\\]+\.[^\s@<>()",;:\\]+$/;
+const DEPLOY_HOOK = 'https://api.cloudflare.com/client/v4/workers/builds/deploy_hooks/';
 const LIMIT = 3;
 const WINDOW_MS = 60_000;
 
@@ -52,7 +54,43 @@ export default {
     if (url.pathname === '/api/contact') return handleContact(request, env);
     return env.ASSETS.fetch(request);
   },
+
+  // 失敗は throw して Cron Events に失敗として残す
+  async scheduled(_controller: unknown, env: Env): Promise<void> {
+    const started = Date.now();
+    const r = await triggerBuild(env.DEPLOY_HOOK_URL);
+    log({
+      level: 'buildId' in r ? 'info' : 'error',
+      msg: 'Deploy Hook を呼び出した',
+      ...(r.status && { 'http.response.status_code': r.status }),
+      duration_ms: Date.now() - started,
+      ...('buildId' in r
+        ? { 'app.build.id': r.buildId }
+        : { 'error.type': r.errorType, 'app.error.origin': 'system', 'app.error.transient': r.transient }),
+    });
+    if (!('buildId' in r)) throw new Error(`Deploy Hook の呼び出しに失敗した: ${r.errorType}`);
+  },
 };
+
+// URL はシークレットのため、ログにもエラーにも載せない
+async function triggerBuild(
+  url: string | undefined,
+): Promise<{ buildId: string; status: number } | { errorType: string; transient: boolean; status?: number }> {
+  if (!url?.startsWith(DEPLOY_HOOK)) return { errorType: 'missing_config', transient: false };
+  let res: Response;
+  try {
+    res = await fetch(url, { method: 'POST', redirect: 'error', signal: AbortSignal.timeout(30_000) });
+  } catch (e) {
+    // message には URL が混ざりうるため、種別の名前だけを残す
+    return { errorType: e instanceof Error ? e.name : 'fetch_failed', transient: true };
+  }
+  const status = res.status;
+  if (!res.ok) return { errorType: 'deploy_hook_status', transient: status === 429 || status >= 500, status };
+  const body = (await res.json().catch(() => null)) as { result?: { build_uuid?: unknown } } | null;
+  const id = body?.result?.build_uuid;
+  if (typeof id !== 'string' || !/^[\w-]{1,64}$/.test(id)) return { errorType: 'bad_response', transient: false, status };
+  return { buildId: id, status };
+}
 
 // IP ごとに 1 つ作り、直近 WINDOW_MS の受付時刻を数える。ログは呼び出し側の境界で出す
 export class ContactRateLimiter {
