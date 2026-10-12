@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { access, readFile } from 'node:fs/promises';
 import { projects } from '../src/data/projects.ts';
 import news from '../src/data/news.json' with { type: 'json' };
 
@@ -57,4 +57,64 @@ test('dist/index.html がお知らせの見出しと各お知らせの題名・�
 test('dist/index.html が script とインラインの style を含まない', () => {
   assert.ok(!html.includes('<script'));
   assert.ok(!html.includes('<style'));
+});
+
+const readDist = (path) => readFile(new URL(`../dist/${path}`, import.meta.url), 'utf8');
+const contact = await readDist('contact/index.html');
+const RESULTS = ['sent', 'invalid', 'rejected', 'limited', 'failed'];
+
+test('dist/index.html が問い合わせのページへのリンクを含む', () => {
+  assert.ok(html.includes('href="/contact/"'));
+});
+
+test('問い合わせのページが送信先と 3 項目と Turnstile を持つ', () => {
+  assert.match(contact, /<form[^>]*method="post"/);
+  assert.match(contact, /<form[^>]*action="\/api\/contact"/);
+  for (const name of ['name', 'email', 'message']) {
+    assert.match(contact, new RegExp(`<(input|textarea)[^>]*name="${name}"[^>]*required`), `項目がない: ${name}`);
+    assert.match(contact, new RegExp(`<label[^>]*for="${name}"`), `ラベルがない: ${name}`);
+  }
+  assert.match(contact, /data-sitekey="[^"]+"/);
+});
+
+test('問い合わせのページの script は Turnstile の 1 本だけで、インラインの style を含まない', () => {
+  const scripts = contact.match(/<script[^>]*>/g) ?? [];
+  assert.equal(scripts.length, 1);
+  assert.match(scripts[0], /src="https:\/\/challenges\.cloudflare\.com\/turnstile\/v0\/api\.js"/);
+  assert.ok(!contact.includes('<style'));
+});
+
+test('結果ページが 5 つあり、noindex が付き、Worker が置き換える印を含む', async () => {
+  const pages = Object.fromEntries(await Promise.all(RESULTS.map(async (r) => [r, await readDist(`contact/${r}/index.html`)])));
+  for (const [name, page] of Object.entries(pages)) {
+    assert.ok(page.includes('<meta name="robots" content="noindex">'), `noindex がない: ${name}`);
+    assert.ok(page.includes('href="/contact/"'), `戻るリンクがない: ${name}`);
+  }
+  assert.ok(pages.invalid.includes('%MISSING%'));
+  assert.ok(pages.failed.includes('%REQUEST_ID%'));
+});
+
+test('Worker が参照する結果ページがすべてビルド成果物にある', async () => {
+  const worker = await readFile(new URL('../src/worker.ts', import.meta.url), 'utf8');
+  // 成功時は '/contact/sent/' の直書き、失敗時は RESULT_PAGES の値を '/contact/' + name + '/' で組み立てる
+  const literal = [...worker.matchAll(/\/contact\/([a-z]+)\//g)].map((m) => m[1]);
+  const table = worker.match(/const RESULT_PAGES = \{([^}]*)\}/)?.[1] ?? '';
+  const mapped = [...table.matchAll(/:\s*'([a-z]+)'/g)].map((m) => m[1]);
+  const names = new Set([...literal, ...mapped]);
+  assert.deepEqual([...names].sort(), [...RESULTS].sort());
+  for (const name of names) await access(new URL(`../dist/contact/${name}/index.html`, import.meta.url));
+});
+
+test('CSP が Turnstile の読み込みと同一オリジンへの送信だけを許す', async () => {
+  const headers = await readFile(new URL('../public/_headers', import.meta.url), 'utf8');
+  const csp = headers.match(/Content-Security-Policy: (.*)/)?.[1] ?? '';
+  for (const directive of [
+    "default-src 'none'",
+    'script-src https://challenges.cloudflare.com;',
+    'frame-src https://challenges.cloudflare.com;',
+    "form-action 'self'",
+  ]) {
+    assert.ok(csp.includes(directive), `CSP にない: ${directive}`);
+  }
+  assert.ok(!csp.includes("'unsafe-inline'"));
 });

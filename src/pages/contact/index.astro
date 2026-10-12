@@ -1,0 +1,116 @@
+---
+import Base from '../../layouts/Base.astro';
+
+// Cloudflare が公開している、常に検証を通すテスト用のサイトキー
+const TEST_SITE_KEY = '1x00000000000000000000AA';
+
+let siteKey: string | undefined = import.meta.env.PUBLIC_TURNSTILE_SITE_KEY;
+if (!siteKey) {
+  // 本番のビルド(Workers Builds)でテスト用キーが公開されるのを防ぐ
+  // @types/node を入れていないため、型を付けて process を読む
+  const { env } = (globalThis as unknown as { process: { env: Record<string, string | undefined> } }).process;
+  if (env.WORKERS_CI) throw new Error('PUBLIC_TURNSTILE_SITE_KEY が未設定');
+  siteKey = TEST_SITE_KEY;
+  console.warn(
+    JSON.stringify({
+      level: 'warn',
+      msg: 'PUBLIC_TURNSTILE_SITE_KEY が未設定のため、テスト用のサイトキーを使う',
+      'app.turnstile.site_key': TEST_SITE_KEY,
+    }),
+  );
+}
+---
+
+<Base title="問い合わせ | mosidas" description="mosidas への問い合わせのフォーム。">
+  <h1>問い合わせ</h1>
+  <p class="lead">入力内容はサーバーに保存せず、本人宛のメールとして送る。</p>
+  <form method="post" action="/api/contact">
+    <div class="field">
+      <label for="name">名前</label>
+      <input id="name" name="name" type="text" autocomplete="name" maxlength="100" required />
+    </div>
+    <div class="field">
+      <label for="email">メールアドレス</label>
+      <input id="email" name="email" type="email" autocomplete="email" maxlength="254" required />
+    </div>
+    <div class="field">
+      <label for="message">本文</label>
+      <textarea id="message" name="message" rows="8" maxlength="5000" required></textarea>
+    </div>
+    <div class="cf-turnstile" data-sitekey={siteKey} data-language="ja"></div>
+    <noscript><p class="note">送信には JavaScript が必要である。ブラウザーで JavaScript を有効にしてほしい。</p></noscript>
+    <button type="submit">送信する</button>
+  </form>
+  <p class="back"><a href="/">トップページへ戻る</a></p>
+  <script is:inline src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+</Base>
+
+<style>
+  .lead {
+    margin: 0 0 32px;
+    color: var(--muted);
+  }
+
+  form {
+    display: grid;
+    gap: 24px;
+  }
+
+  .field {
+    display: grid;
+    gap: 8px;
+  }
+
+  label {
+    font-weight: 600;
+  }
+
+  input,
+  textarea {
+    box-sizing: border-box;
+    width: 100%;
+    min-height: 44px;
+    padding: 8px 12px;
+    /* 入力欄の境界は背景に対して 3:1 以上が要るため、--rule でなく --muted を使う */
+    border: 1px solid var(--muted);
+    border-radius: 4px;
+    font: inherit;
+    color: var(--text);
+    background: var(--bg);
+  }
+
+  textarea {
+    resize: vertical;
+  }
+
+  button {
+    justify-self: start;
+    min-height: 44px;
+    padding: 8px 24px;
+    border: 0;
+    border-radius: 4px;
+    font: inherit;
+    font-weight: 600;
+    color: var(--bg);
+    background: var(--link);
+    cursor: pointer;
+  }
+
+  button:hover {
+    text-decoration: underline;
+  }
+
+  :is(input, textarea, button):focus-visible {
+    outline: 2px solid var(--link);
+    outline-offset: 2px;
+  }
+
+  .note {
+    margin: 0;
+    color: var(--muted);
+  }
+
+  .back {
+    margin: 48px 0 0;
+  }
+</style>

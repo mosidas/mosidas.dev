@@ -1,0 +1,78 @@
+---
+interface Props {
+  title: string;
+  description: string;
+  noindex?: boolean;
+}
+
+const { title, description, noindex = false } = Astro.props;
+---
+
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    {noindex && <meta name="robots" content="noindex" />}
+  </head>
+  <body>
+    <main>
+      <slot />
+    </main>
+  </body>
+</html>
+
+<style>
+  :global(html) {
+    /* 白地に対するコントラスト比: 文字 15.5:1、補足 6.5:1、リンク 7.2:1(ダーク: 13.6・8.0・8.4) */
+    --text: hsl(220 15% 15%);
+    --muted: hsl(220 10% 38%);
+    --link: hsl(215 70% 38%);
+    --rule: hsl(220 12% 88%);
+    --bg: hsl(0 0% 100%);
+    color-scheme: light dark;
+    font-family: system-ui, -apple-system, 'Hiragino Sans', 'Noto Sans JP', sans-serif;
+    line-height: 1.7;
+    color: var(--text);
+    background: var(--bg);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :global(html) {
+      --text: hsl(220 15% 90%);
+      --muted: hsl(220 10% 70%);
+      --link: hsl(215 80% 75%);
+      --rule: hsl(220 10% 28%);
+      --bg: hsl(220 15% 11%);
+    }
+  }
+
+  :global(body) {
+    margin: 0;
+  }
+
+  main {
+    max-width: 40rem;
+    margin: 0 auto;
+    padding: 48px 24px 96px;
+  }
+
+  /* h1 と a は各ページのスロットの中にあり、このコンポーネントのスコープが付かない */
+  main :global(h1) {
+    margin: 0 0 16px;
+    font-size: 1.875rem;
+    font-weight: 700;
+    line-height: 1.3;
+  }
+
+  main :global(a) {
+    color: var(--link);
+    overflow-wrap: anywhere;
+  }
+
+  main :global(a:focus-visible) {
+    outline: 2px solid var(--link);
+    outline-offset: 2px;
+  }
+</style>
