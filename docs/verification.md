@@ -265,8 +265,8 @@ PR #8 の時点では、Rate Limiting バインディング(`ratelimits`)でレ�
 
 | 方式 | 試験の時刻(UTC) | 送った要求 | 結果 |
 | :-- | :-- | :-- | :-- |
-| Rate Limiting バインディング | 10:21:09〜10:22:13 | 同一 IP から 2 秒間隔で 30 回 | 429 は 0 回 |
-| Rate Limiting バインディング | 記録なし | 同一 IP から間隔なしで 20 回連続 | 429 は 0 回 |
+| Rate Limiting バインディング | 10:21:09〜10:22:13 | 同一端末から(要求ごとに curl を起動)2 秒間隔で 30 回 | 429 は 0 回 |
+| Rate Limiting バインディング | 記録なし | 同一端末から(要求ごとに curl を起動)間隔なしで 20 回連続 | 429 は 0 回 |
 | WAF レート制限ルール | 10:32〜10:35 | 60 回以上 | 429 は 0 回 |
 
 WAF レート制限ルールは、ユーザーが 10:32:13 UTC に作成した。
@@ -284,14 +284,15 @@ Free プランで作れる 1 件を使い、パスは `/api/contact`、IP ごと
 - 212.32.76.20
 
 上の試験は `curl` を要求ごとに起動したため、要求は毎回別の IP として数えられた。
-Workers Logs の tail でも、要求ごとに別の durableObjectId が呼ばれていた。
 したがって、要求ごとに接続する試験では、IP 単位の制限はどれも発動しなかった。
-Rate Limiting バインディング・WAF ルール・Durable Objects のいずれも同じである。
+Rate Limiting バインディングと WAF ルールのどちらも同じである。
 
 対策として、Durable Objects で IP ごとに数える方式に置き換えた(7.1)。
 PR #9 は 11:02:03 UTC にマージした(マージコミット `3737313`)。
 Workers Builds は 11:03:21 UTC に成功した。
 migrations v1(ContactRateLimiter、SQLite)は、エラーなく適用された。
+デプロイ後に要求ごとに `curl` を起動して送ると、Workers Logs の tail では要求ごとに別の durableObjectId が呼ばれ、429 は出なかった(時刻は記録していない)。
+Durable Objects も、要求ごとに接続する試験では発動しない。
 
 デプロイ後、本番で同一の TCP 接続から POST /api/contact を送り、次の結果を得た。
 
@@ -333,7 +334,7 @@ Rate Limiting バインディングは、同一接続での試験をしていな
 DNS の負のキャッシュがあるときだけ、`--resolve` を付ける。
 
 ```sh
-curl -s --rate 15/m -H 'Origin: https://mosidas.dev' -H 'Content-Type: application/x-www-form-urlencoded' -d 'name=&email=&message=' -o /dev/null -w '%{http_code} %{num_connects}\n' https://mosidas.dev/api/contact https://mosidas.dev/api/contact https://mosidas.dev/api/contact https://mosidas.dev/api/contact https://mosidas.dev/api/contact
+curl -s --rate 15/m -H 'Origin: https://mosidas.dev' -H 'Content-Type: application/x-www-form-urlencoded' -d 'name=&email=&message=' -o /dev/null -o /dev/null -o /dev/null -o /dev/null -o /dev/null -w '%{http_code} %{num_connects}\n' https://mosidas.dev/api/contact https://mosidas.dev/api/contact https://mosidas.dev/api/contact https://mosidas.dev/api/contact https://mosidas.dev/api/contact
 ```
 
 期待する結果は、400 が 3 回、続いて 429 が 2 回である。
@@ -344,7 +345,9 @@ curl -s --rate 15/m -H 'Origin: https://mosidas.dev' -H 'Content-Type: applicati
 
 ### 7.5 注意点
 
-- レート制限は、Durable Objects(Worker 内で確実に数える)と WAF ルール(ゾーン、Free の 1 件)の 2 層を残す。Rate Limiting バインディングには戻さない。効果を確かめる手段が乏しく、公式文書も「permissive, eventually consistent」としているためである。
+- レート制限は、Durable Objects(Worker 内で確実に数える)と WAF ルール(ゾーン、Free の 1 件)の 2 層を残す。
+  Rate Limiting バインディングには戻さない。
+  公式文書が permissive, eventually consistent としているためである。
 - デプロイの 504 は Cloudflare 側の一時障害で、Retry build で回復した。
 - Workers Builds の非 production ブランチのチェックの失敗(6.5)は、PR #7・#8 でも続いている。
 - 確認した端末では DNS の負のキャッシュが残っていたため、5.3・6.5 と同じく `curl` に `--resolve` を付けて実行した。
