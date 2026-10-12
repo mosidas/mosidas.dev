@@ -298,8 +298,23 @@ test('ContactRateLimiter は 60 秒に 3 回まで受け付け、拒否した試
   assert.equal(state.alarms.at(-1), 120_000);
   t.mock.timers.tick(60_000);
   assert.equal(await status(), 204);
+  t.mock.timers.tick(60_000);
   await limiter.alarm();
   assert.equal(state.data.size, 0);
+});
+
+test('ContactRateLimiter の alarm は窓の内側の受付時刻を残し、次の alarm を最古の時刻 + 60 秒に設定する', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: 0 });
+  const state = limiterState();
+  const limiter = new ContactRateLimiter(state, {});
+  await limiter.fetch();
+  t.mock.timers.tick(30_000);
+  await limiter.fetch();
+  // 最初の受付の alarm が 2 回目の受付より後に走っても、2 回目の受付時刻は消えない
+  t.mock.timers.tick(30_000);
+  await limiter.alarm();
+  assert.deepEqual(state.data.get('hits'), [30_000]);
+  assert.equal(state.alarms.at(-1), 90_000);
 });
 
 test('別の Origin からの要求は 403 を返す', async (t) => {
