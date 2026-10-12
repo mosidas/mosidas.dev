@@ -25,6 +25,16 @@ test('dist/index.html が各制作物の名前とリンクを含む', () => {
   }
 });
 
+test('各制作物が 1 つ以上の使用技術を持ち、dist/index.html に表示される', () => {
+  for (const { name, stack } of projects) {
+    assert.ok(stack.length > 0, `使用技術がない: ${name}`);
+    for (const tech of stack) {
+      const escaped = tech.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      assert.match(html, new RegExp(`<li[^>]*>${escaped}</li>`), `使用技術がない: ${name} の ${tech}`);
+    }
+  }
+});
+
 test('dist/index.html が script とインラインの style を含まない', () => {
   assert.ok(!html.includes('<script'));
   assert.ok(!html.includes('<style'));

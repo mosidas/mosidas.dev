@@ -19,6 +19,9 @@ import { projects } from '../data/projects';
             <li>
               <h2>{project.name}</h2>
               <p>{project.description}</p>
+              <ul class="stack" aria-label="使用技術">
+                {project.stack.map((tech) => <li>{tech}</li>)}
+              </ul>
               <a href={project.url}>{project.url}</a>
             </li>
           ))
@@ -95,6 +98,22 @@ import { projects } from '../data/projects';
 
   li p {
     margin: 0 0 8px;
+  }
+
+  .stack {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 0 0 12px;
+  }
+
+  .stack li {
+    padding: 2px 8px;
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    font-size: 0.8125rem;
+    line-height: 1.5;
+    color: var(--muted);
   }
 
   a {
