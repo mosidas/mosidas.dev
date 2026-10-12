@@ -5,7 +5,7 @@
 ビルドと配信の基盤には Workers Static Assets を採用した。
 理由は次の 3 つである。
 
-- 将来追加する Cron Triggers と問い合わせ API は Workers の機能である。`wrangler.jsonc` に `main` を追加するだけで同じ Worker に載るので、基盤を移行せずに済む。
+- 将来追加する Cron Triggers と問い合わせ API は Workers の機能である。同じ Worker に `main`(Worker のコード)と `triggers.crons` を追加すれば載るので、基盤を移行せずに済む。Worker のコードには、Cron Triggers 用の `scheduled` ハンドラーと、問い合わせ API 用の `fetch` ハンドラーを書く。
 - Cloudflare は新規プロジェクトに Workers を推奨している。
 - 静的アセットの配信は Worker の呼び出しにならず、無料プランの上限を消費しない。
 
@@ -22,11 +22,11 @@ Pages Functions では Cron Triggers を持てず、定期実行には別の Wor
 
 次の手順はユーザーが Cloudflare のダッシュボードで行う。
 
-1. Cloudflare ダッシュボードで Workers & Pages → Create → Import a repository を選択する。
+1. Cloudflare ダッシュボードで Workers & Pages → Create application → Import a repository → Get started を選択する。
 2. Cloudflare の GitHub App を、リポジトリ mosidas/mosidas.dev に限定してインストールする。
 3. Worker 名は、`wrangler.jsonc` の `name` と同じ `mosidas-dev` にする。
 4. Build command に `npm run build`、Deploy command に `npx wrangler deploy` を指定する。
-5. 本番ブランチに `main` を指定する。
+5. 監視するブランチは既定で `main` である。違う場合は Settings > Build の Git branch で直す。
 6. ビルドやデプロイが失敗したときは、ダッシュボードのビルドログと、GitHub のコミットに付くチェックを確認する。
 
 ## 3. 配信の確認
