@@ -7,10 +7,10 @@
   },
   "scripts": {
     "dev": "astro dev",
-    "build": "node scripts/fetch-news.mjs && astro build",
+    "build": "node scripts/build.mjs",
     "preview": "astro preview",
     "lint": "astro check",
-    "test": "astro build && node --test test/build.test.mjs test/worker.test.mjs test/news.test.mjs",
+    "test": "astro build && node --test test/build.test.mjs test/worker.test.mjs test/news.test.mjs test/build-script.test.mjs",
     "prepare": "husky"
   },
   "dependencies": {

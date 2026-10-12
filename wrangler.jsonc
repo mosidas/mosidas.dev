@@ -17,5 +17,7 @@
   // Free プランは SQLite バックエンドのみ。Rate Limiting バインディングは本番で 429 を返さなかった(docs/verification.md 7.)
   "durable_objects": { "bindings": [{ "name": "CONTACT_LIMITER", "class_name": "ContactRateLimiter" }] },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["ContactRateLimiter"] }],
+  // Webhook が届かなくても毎日の更新を反映するため、UTC 21:00(JST 6:00)にビルドを起動する
+  "triggers": { "crons": ["0 21 * * *"] },
   "observability": { "enabled": true }
 }

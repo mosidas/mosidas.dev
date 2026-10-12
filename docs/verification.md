@@ -101,7 +101,7 @@ Workers Builds のデプロイ完了は 07:49:53 UTC である(`npx wrangler dep
 
 ### 6.1 方式
 
-`npm run build` は `node scripts/fetch-news.mjs && astro build` を実行する。
+`npm run build` は `node scripts/build.mjs` を実行し、最初に `scripts/fetch-news.mjs` を呼ぶ(8.1 を参照)。
 ビルド前スクリプト `scripts/fetch-news.mjs` が、microCMS の API `news` からお知らせを取得する。
 取得は `orders=-publishedAt&limit=10` で、`publishedAt` の降順に 10 件である。取得する項目は `id`・`title`・`body`・`publishedAt` である。
 本文は sanitize-html で許可リスト方式にサニタイズする。許可リストに無いタグと属性は除き、`h1`〜`h3` は `h4` に置き換える。
@@ -360,3 +360,102 @@ curl -s --rate 15/m -H 'Origin: https://mosidas.dev' -H 'Content-Type: applicati
 - [Turnstile · Cloudflare docs](https://developers.cloudflare.com/turnstile/)
 - [Alarms · Cloudflare Durable Objects docs](https://developers.cloudflare.com/durable-objects/api/alarms/)
 - [Rate limiting rules · Cloudflare WAF docs](https://developers.cloudflare.com/waf/rate-limiting-rules/)
+
+## 8. 1 日 1 回のビルドとコンテンツの保存
+
+### 8.1 方式
+
+構成は Cloudflare だけで完結する(コミット `7dbeb0b`・`2fd261b`)。
+`wrangler.jsonc` の `triggers.crons` に `0 21 * * *`(UTC 21:00、JST 6:00)を設定した。
+Cron Triggers は `src/worker.ts` の `scheduled` を起動する。
+`scheduled` は、Worker のシークレット `DEPLOY_HOOK_URL` に POST する。値は Workers Builds の Deploy Hook(`main`)の URL である。
+URL が `https://api.cloudflare.com/client/v4/workers/builds/deploy_hooks/` で始まらなければ、呼ばずに失敗させる。
+
+ビルドコマンド `npm run build` は、`node scripts/build.mjs` を実行する。
+`scripts/build.mjs` は、次の順に処理する。
+
+1. `scripts/fetch-news.mjs` でお知らせを取得する。
+2. 取得したコンテンツをスナップショットとしてコミットする。
+3. `astro build` を実行する。
+
+スナップショットのコミット先は、同じリポジトリの orphan ブランチ `content-snapshot` である。
+tree は `src/data/news.json` と `public/news/images/*` だけを持つ。
+コミットには GitHub REST API(Git Data)を使う。
+tree の sha が前回のコミットと同じなら、コミットしない。
+
+コミット先を `main` にしない理由は 2 つある。
+
+- `main` のルールセットは PR を必須にしており、直接のコミットを拒む。
+- 本番のビルド(`WORKERS_CI_BRANCH` が `main`)は、`main` への push と Deploy Hook でだけ走る。`content-snapshot` への push で走るのは非 production のビルドであり、`build.mjs` はスナップショットをコミットしない。そのため、コミットが次のコミットを起動して繰り返すことは構造上起きない。Workers Builds には `[skip ci]` の文書が無い。
+
+コミットと Issue の作成は、`WORKERS_CI` があり、`WORKERS_CI_BRANCH` が `main` のときだけ行う。
+トークンはビルドのシークレット `SNAPSHOT_GITHUB_TOKEN` である。
+fine-grained PAT で、対象は mosidas/mosidas.dev だけ、権限は Contents と Issues の Read and write、有効期限を設ける。
+トークンの値は、PRD・docs・Issue の本文に書かない。
+
+失敗の検知は次のとおりである。
+
+| 失敗 | 検知 |
+| :-- | :-- |
+| fetch-news の失敗 | `build.mjs` が Issue「ビルドに失敗した(fetch)」を作る |
+| スナップショットのコミットの失敗 | ビルドを失敗させて配信しない。`build.mjs` が Issue「ビルドに失敗した(snapshot)」を作る |
+| `astro build` の失敗 | `build.mjs` が Issue「ビルドに失敗した(build)」を作る |
+| `SNAPSHOT_GITHUB_TOKEN` が未登録 | `missing_credentials` でビルドが失敗する。Issue は作れない |
+| clone・`npm ci`・`wrangler deploy` の失敗、時間切れ | 検知しない |
+| Cron Triggers から Deploy Hook の呼び出しの失敗 | `scheduled` の error ログと Cron Events に残る |
+
+見送った案と理由は次のとおりである。
+
+| 案 | 見送った理由 |
+| :-- | :-- |
+| ビルドを GitHub Actions に委ねる | Worker に GitHub のトークンが必要になる。microCMS の API キーの置き場所が 2 か所になる |
+| GitHub Actions の schedule で起動する | 起点が Cron Triggers でなくなる |
+| `main` に直接コミットする | ルールセットが拒む |
+| `[skip ci]` で再ビルドを止める | Workers Builds の文書に根拠が無い |
+| ビルド内で `git push` する | トークンがビルド環境に残りやすい |
+| 別のリポジトリにコミットする | PAT の対象が広がる |
+
+### 8.2 手順
+
+次の手順はユーザーが行う。
+
+1. GitHub で fine-grained PAT を発行する。Repository access は mosidas/mosidas.dev だけ、Permissions は Contents: Read and write と Issues: Read and write にし、有効期限を設ける。
+2. Worker `mosidas-dev` の Settings > Build > Variables and secrets に、シークレット `SNAPSHOT_GITHUB_TOKEN`(1. の PAT)を登録する。登録は PR のマージ前に行う。未登録だと `main` のビルドが `missing_credentials` で失敗し、前回の配信が続く。
+3. Settings > Build > Deploy Hooks にある `main` のフック(6.2 で作成済み)の URL を、Settings > Variables and Secrets にシークレット `DEPLOY_HOOK_URL` として登録する。
+4. PR をマージする。
+5. マージ後のビルドが成功し、`content-snapshot` ブランチが作られたことを確かめる(`gh api repos/mosidas/mosidas.dev/branches/content-snapshot`)。
+6. 任意で、`content-snapshot` の削除と非 fast-forward の push を禁じるルールセットを作る。
+7. Settings > Build > Branch control で、非 production ブランチのビルドから `content-snapshot` を除外する。除外しないと、orphan ブランチには `package.json` が無いため、非 production のビルドが毎日失敗して通知が届く。ブランチを指定して除外する設定が無ければ、同じ画面の Enable Preview Builds を外す(PR のプレビューも止まる)。除外できたかは、次の `content-snapshot` への push のあとにビルドの一覧で確かめる。
+
+### 8.3 計測
+
+計測は後続の PR で記入する。
+
+| 項目 | 確かめ方 | 結果 |
+| :-- | :-- | :-- |
+| AC1: Cron Triggers の起動 | Worker の Logs または Metrics の Cron Triggers(Cron Events)に起動が記録される | 未計測 |
+| AC2: コンテンツの保存 | microCMS の変更時刻と、`content-snapshot` のコミット時刻を比べる | 未計測 |
+| AC3: 失敗時の配信の継続 | ビルドのシークレット `MICROCMS_API_KEY` を一時的に誤った値にして Deploy Hook を呼び(`http_status_401`)、サイトが前回の内容で閲覧できることを確かめる。確かめたら `MICROCMS_API_KEY` を元の値に戻す | 未計測 |
+| AC4: 失敗の通知 | AC3 と同じ操作で Issue が作られることを確かめる。起点はビルドログの error 行の時刻、終点は `gh issue view <番号> --json createdAt` の値である。Issue の error.type は `exit_code_1` で、`http_status_401` は本文の stderr の末尾に出る | 未計測 |
+
+### 8.4 注意点
+
+- clone・`npm ci`・`wrangler deploy` の失敗と時間切れは、Issue にならない。
+- PAT の有効期限が切れると、`github_status_401` でビルドが失敗し、Issue も作れない。期限の前に PAT を再発行し、ビルドのシークレット `SNAPSHOT_GITHUB_TOKEN` を置き換える。
+- PAT または Deploy Hook の URL が漏えいしたときは、GitHub で PAT を失効させ、Cloudflare で Deploy Hook を削除して作り直す。作り直した URL は `DEPLOY_HOOK_URL` と microCMS の Webhook に登録し直す。
+- 同時に走らせるビルドは 1 本にする。2 本が重なると、後のビルドの ref の更新(PATCH)が 422 で失敗し、Issue が作られる。
+
+スナップショットからの復元は、次の手順で行う。自動化は対象外である。
+
+1. `git fetch origin content-snapshot` を実行する。
+2. `git restore --source=origin/content-snapshot --worktree -- src/data/news.json public/news/images` で内容を取り出す。インデックスは変えないので、`main` の追跡ファイルはステージされない。
+3. 取り出した内容を、microCMS に手で登録し直す。
+
+推進室の資料(homepage-replace)との対応は次のとおりである。
+
+| 資料の記述 | 本節の実装 |
+| :-- | :-- |
+| 構成図の「1 日 1 回の Cron Triggers でビルド」 | 8.1 の Cron Triggers と Deploy Hook |
+| 「バックアップと復元」の「ビルドのたびにコンテンツと画像も GitHub に保存する」 | 8.1 の `content-snapshot` へのコミットと、8.4 の復元の手順 |
+| 「障害時の動作」の「保守の担当者へ通知が届く」 | 8.1 の失敗時の Issue |
+| Cloudflare の費用の「Cron Triggers 2 件(ビルドの起動・アクセストークンの更新)」 | 本節で使うのはビルドの起動の 1 件である |

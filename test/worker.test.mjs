@@ -373,3 +373,67 @@ test('wrangler.jsonc は vars を持たず、microCMS・GitHub の値を Worker 
   const text = await readFile(new URL('../wrangler.jsonc', import.meta.url), 'utf8');
   assert.doesNotMatch(text, /vars|microcms|github/i);
 });
+
+const HOOK = 'https://api.cloudflare.com/client/v4/workers/builds/deploy_hooks/hook-secret-123';
+
+// Deploy Hook の fetch とログを捕まえて scheduled を 1 回走らせ、ログが 1 行で URL を含まないことを確かめる
+async function runScheduled(t, env, respond = async () => Response.json({ success: true, result: { build_uuid: 'build-1' } })) {
+  const calls = [];
+  t.mock.method(globalThis, 'fetch', async (url, init) => {
+    calls.push({ url: String(url), init });
+    return respond();
+  });
+  const out = t.mock.method(console, 'log', () => {});
+  const err = t.mock.method(console, 'error', () => {});
+  const error = await worker.scheduled({ cron: '0 21 * * *' }, env).then(() => undefined, (e) => e);
+  const lines = [...out.mock.calls, ...err.mock.calls].map((c) => c.arguments[0]);
+  assert.equal(lines.length, 1);
+  assert.ok(!lines[0].includes('hook-secret-123'), 'ログに URL が含まれる');
+  if (error) assert.ok(!String(error.message).includes('hook-secret-123'), 'エラーに URL が含まれる');
+  return { calls, error, log: JSON.parse(lines[0]), stream: out.mock.callCount() ? 'log' : 'error' };
+}
+
+test('scheduled は Deploy Hook を POST で呼び、build_uuid を info ログに残す', async (t) => {
+  const { calls, error, log, stream } = await runScheduled(t, { DEPLOY_HOOK_URL: HOOK });
+  assert.equal(error, undefined);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, HOOK);
+  assert.equal(calls[0].init.method, 'POST');
+  assert.equal(calls[0].init.redirect, 'error');
+  assert.ok(calls[0].init.signal instanceof AbortSignal);
+  assert.equal(stream, 'log');
+  assert.equal(log.level, 'info');
+  assert.equal(log['app.build.id'], 'build-1');
+  assert.equal(log['http.response.status_code'], 200);
+  assert.equal(typeof log.duration_ms, 'number');
+});
+
+for (const [label, url] of [
+  ['未設定', undefined],
+  ['別ホスト', 'https://evil.example/client/v4/workers/builds/deploy_hooks/hook-secret-123'],
+  ['http', 'http://api.cloudflare.com/client/v4/workers/builds/deploy_hooks/hook-secret-123'],
+]) {
+  test(`scheduled は DEPLOY_HOOK_URL が${label}なら fetch せずに reject する`, async (t) => {
+    const { calls, error, log } = await runScheduled(t, { DEPLOY_HOOK_URL: url });
+    assert.ok(error instanceof Error);
+    assert.equal(calls.length, 0);
+    assert.equal(log.level, 'error');
+    assert.equal(log['error.type'], 'missing_config');
+    assert.equal(log['app.error.transient'], false);
+  });
+}
+
+for (const [label, respond, type, transient] of [
+  ['500 を返す', async () => new Response('x', { status: 500 }), 'deploy_hook_status', true],
+  ['build_uuid の無い本文を返す', async () => Response.json({ success: true, result: {} }), 'bad_response', false],
+  ['例外を投げる', async () => { throw new TypeError(`${HOOK} に届かない`); }, 'TypeError', true],
+]) {
+  test(`scheduled は Deploy Hook が${label}と reject し、URL を含まない error ログを残す`, async (t) => {
+    const { error, log } = await runScheduled(t, { DEPLOY_HOOK_URL: HOOK }, respond);
+    assert.ok(error instanceof Error);
+    assert.equal(log.level, 'error');
+    assert.equal(log['error.type'], type);
+    assert.equal(log['app.error.origin'], 'system');
+    assert.equal(log['app.error.transient'], transient);
+  });
+}
