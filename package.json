@@ -3,21 +3,23 @@
   "private": true,
   "type": "module",
   "engines": {
-    "node": ">=24"
+    "node": ">=24.2"
   },
   "scripts": {
     "dev": "astro dev",
-    "build": "astro build",
+    "build": "node scripts/fetch-news.mjs && astro build",
     "preview": "astro preview",
     "lint": "astro check",
-    "test": "astro build && node --test test/build.test.mjs test/worker.test.mjs",
+    "test": "astro build && node --test test/build.test.mjs test/worker.test.mjs test/news.test.mjs",
     "prepare": "husky"
   },
   "dependencies": {
-    "astro": "^7.3.8"
+    "astro": "^7.3.8",
+    "sanitize-html": "^2.18.0"
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.10",
+    "@types/sanitize-html": "^2.16.2",
     "husky": "^9.1.7",
     "typescript": "^6.0.3",
     "wrangler": "^4.149.0"
