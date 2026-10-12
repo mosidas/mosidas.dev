@@ -102,6 +102,17 @@ test('画像が 404 なら失敗し、失敗箇所に画像と URL を載せる'
   await assert.rejects(fetchNews('example', 'key'), { type: 'http_status_404', target: 'image', url: src });
 });
 
+test('画像の取得がタイムアウトしたら、例外の種類を保ったまま失敗箇所と URL を載せる', async () => {
+  const src = 'https://images.microcms-assets.io/x.png';
+  respond = (url) => {
+    if (url.includes('.microcms.io/api/')) {
+      return Response.json({ contents: [item('a', '2026-01-01T00:00:00.000Z', `<img src="${src}">`)] });
+    }
+    throw new DOMException('timeout', 'TimeoutError');
+  };
+  await assert.rejects(fetchNews('example', 'key'), { name: 'TimeoutError', target: 'image', url: src });
+});
+
 test('応答の形が不正なら失敗する', async () => {
   respond = () => Response.json({});
   await assert.rejects(fetchNews('example', 'key'), { type: 'invalid_response' });

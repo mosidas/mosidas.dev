@@ -116,21 +116,26 @@ function sanitizeBody(html, downloads) {
 
 /** @param {string} href @param {string} name */
 async function downloadImage(href, name) {
-  const res = await fetch(href, { redirect: 'error', signal: AbortSignal.timeout(TIMEOUT_MS) });
-  assertOk(res, 'image', href);
-  const ext = /** @type {keyof typeof MIME_BY_EXT} */ (name.slice(name.lastIndexOf('.') + 1));
-  const type = res.headers.get('content-type')?.split(';')[0].trim().toLowerCase();
-  if (type !== MIME_BY_EXT[ext] || Number(res.headers.get('content-length') ?? 0) > MAX_IMAGE_BYTES || !res.body) {
-    throw new FetchNewsError('image_rejected', false, 'image', href);
+  try {
+    const res = await fetch(href, { redirect: 'error', signal: AbortSignal.timeout(TIMEOUT_MS) });
+    assertOk(res, 'image', href);
+    const ext = /** @type {keyof typeof MIME_BY_EXT} */ (name.slice(name.lastIndexOf('.') + 1));
+    const type = res.headers.get('content-type')?.split(';')[0].trim().toLowerCase();
+    if (type !== MIME_BY_EXT[ext] || Number(res.headers.get('content-length') ?? 0) > MAX_IMAGE_BYTES || !res.body) {
+      throw new FetchNewsError('image_rejected', false, 'image', href);
+    }
+    const chunks = [];
+    let size = 0;
+    for await (const chunk of res.body) {
+      size += chunk.byteLength;
+      if (size > MAX_IMAGE_BYTES) throw new FetchNewsError('image_rejected', false, 'image', href);
+      chunks.push(chunk);
+    }
+    return new Uint8Array(Buffer.concat(chunks));
+  } catch (err) {
+    // ネットワーク例外(TimeoutError・TypeError)にも失敗箇所を付け、error.type と transient の分類は保つ
+    throw Object.assign(/** @type {Error} */ (err), { target: 'image', url: href });
   }
-  const chunks = [];
-  let size = 0;
-  for await (const chunk of res.body) {
-    size += chunk.byteLength;
-    if (size > MAX_IMAGE_BYTES) throw new FetchNewsError('image_rejected', false, 'image', href);
-    chunks.push(chunk);
-  }
-  return new Uint8Array(Buffer.concat(chunks));
 }
 
 /**
@@ -175,14 +180,15 @@ function logError(err) {
   const type = err instanceof FetchNewsError ? err.type : err instanceof Error ? err.name : 'unknown';
   const transient = err instanceof FetchNewsError ? err.transient : type === 'TypeError' || type === 'TimeoutError';
   const cause = err instanceof Error && /** @type {{ code?: unknown } | undefined} */ (err.cause)?.code;
+  const { target, url } = /** @type {{ target?: unknown, url?: unknown }} */ (err instanceof Error ? err : {});
   log({
     level: 'error',
     msg: 'お知らせの取得に失敗した',
     'error.type': type,
     'app.error.origin': 'system',
     'app.error.transient': transient,
-    ...(err instanceof FetchNewsError && err.target && { 'app.fetch.target': err.target }),
-    ...(err instanceof FetchNewsError && err.url && { 'url.full': err.url }),
+    ...(typeof target === 'string' && { 'app.fetch.target': target }),
+    ...(typeof url === 'string' && { 'url.full': url }),
     ...(typeof cause === 'string' && { 'app.error.cause': cause }),
   });
 }
