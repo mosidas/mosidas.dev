@@ -43,4 +43,7 @@ Pages Functions では Cron Triggers を持てず、定期実行には別の Wor
 
 | 計測日 | push したコミット | push の時刻(またはビルド開始時刻) | 配信の更新を確認した時刻 | 所要時間 |
 | :-- | :-- | :-- | :-- | :-- |
-| | | | | |
+| 2026-10-12 | `50b6aa7`(PR #1 のマージコミット) | 2026-10-12 07:18:17 UTC(push の時刻。`gh pr view 1 --json mergedAt` の値) | 2026-10-12 07:19:00 UTC にデプロイが完了(`npx wrangler deployments list` の Created)。07:21:16 UTC の `curl` で、マージに含めた変更(`aria-label="使用技術"`)が応答に現れることを確認 | 43 秒(push からデプロイ完了まで)。`curl` での確認は 2 分 59 秒後 |
+
+Workers Builds のビルド開始時刻は取得できなかった。ビルド履歴の API が wrangler の OAuth トークンでは認証エラー(code 10000)になるためである。
+そのため起点は push の時刻とした。ビルド開始時刻は、ダッシュボードのビルド履歴で確認できる。
