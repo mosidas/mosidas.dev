@@ -2,7 +2,7 @@
 interface Env {
   ASSETS: { fetch(request: Request): Promise<Response> };
   EMAIL: { send(m: { to: string; from: string; replyTo: string; subject: string; text: string }): Promise<unknown> };
-  CONTACT_RATE_LIMITER: { limit(o: { key: string }): Promise<{ success: boolean }> };
+  CONTACT_LIMITER: { idFromName(name: string): unknown; get(id: unknown): { fetch(request: Request): Promise<Response> } };
   TURNSTILE_SECRET_KEY?: string;
   CONTACT_TO?: string;
 }
@@ -12,6 +12,8 @@ const RESULT_PAGES = { invalid: 'invalid', rejected: 'rejected', limited: 'limit
 const LABELS = { name: '名前', email: 'メールアドレス', message: '本文' } as const;
 const CONTROL = /\p{Cc}/u;
 const EMAIL = /^[^\s@<>()",;:\\]+@[^\s@<>()",;:\\]+\.[^\s@<>()",;:\\]+$/;
+const LIMIT = 3;
+const WINDOW_MS = 60_000;
 
 type Field = keyof typeof LABELS;
 type Outcome = keyof typeof FAILURES | 'sent';
@@ -31,6 +33,7 @@ const FAILURES = {
   turnstile_missing: { level: 'warn', origin: 'client', transient: false },
   turnstile_failed: { level: 'warn', origin: 'client', transient: false },
   rate_limited: { level: 'warn', origin: 'client', transient: true },
+  rate_limiter_unavailable: { level: 'error', origin: 'system', transient: true },
   missing_config: { level: 'error', origin: 'system', transient: false },
   turnstile_unavailable: { level: 'error', origin: 'system', transient: true },
   email_send_failed: { level: 'error', origin: 'system', transient: true },
@@ -50,6 +53,37 @@ export default {
     return env.ASSETS.fetch(request);
   },
 };
+
+// IP ごとに 1 つ作り、直近 WINDOW_MS の受付時刻を数える。ログは呼び出し側の境界で出す
+export class ContactRateLimiter {
+  state: {
+    storage: {
+      get<T>(k: string): Promise<T | undefined>;
+      put(k: string, v: unknown): Promise<void>;
+      setAlarm(t: number): Promise<void>;
+      deleteAll(): Promise<void>;
+    };
+  };
+
+  constructor(state: ContactRateLimiter['state'], _env: unknown) {
+    this.state = state;
+  }
+
+  async fetch(): Promise<Response> {
+    const now = Date.now();
+    // get から put の間は入力ゲートで他の要求が割り込まないため、読んで書く処理が原子的になる
+    const hits = ((await this.state.storage.get<number[]>('hits')) ?? []).filter((t) => now - t < WINDOW_MS);
+    if (hits.length >= LIMIT) return new Response(null, { status: 429 });
+    hits.push(now);
+    await this.state.storage.put('hits', hits);
+    await this.state.storage.setAlarm(now + WINDOW_MS);
+    return new Response(null, { status: 204 });
+  }
+
+  async alarm(): Promise<void> {
+    await this.state.storage.deleteAll();
+  }
+}
 
 // shortcut: 問い合わせのメトリクスは Workers Logs の集計で代える, 件数が増えたら Analytics Engine へ移す
 async function handleContact(request: Request, env: Env): Promise<Response> {
@@ -90,9 +124,17 @@ async function processContact(request: Request, env: Env, id: string): Promise<R
   const to = env.CONTACT_TO;
   if (!secret || !to) return fail('missing_config', 'failed', 503);
   const ip = request.headers.get('cf-connecting-ip');
-  if (!(await env.CONTACT_RATE_LIMITER.limit({ key: ip ?? 'unknown' })).success) {
-    return fail('rate_limited', 'limited', 429);
+  let limiterStatus: number;
+  try {
+    const stub = env.CONTACT_LIMITER.get(env.CONTACT_LIMITER.idFromName(ip ?? 'unknown'));
+    limiterStatus = (await stub.fetch(new Request('https://limiter/', { method: 'POST' }))).status;
+  } catch (e) {
+    // message には IP が混ざりうるため、種別の名前だけを残す
+    const r = await fail('rate_limiter_unavailable', 'failed', 503);
+    return { ...r, errorType: e instanceof Error ? e.name : undefined };
   }
+  if (limiterStatus === 429) return fail('rate_limited', 'limited', 429);
+  if (limiterStatus !== 204) return fail('rate_limiter_unavailable', 'failed', 503);
 
   const contentType = (request.headers.get('content-type') ?? '').toLowerCase();
   if (!contentType.startsWith('application/x-www-form-urlencoded')) return fail('bad_body', 'rejected', 400);
@@ -163,8 +205,9 @@ async function resultPage(
 ): Promise<Response> {
   const asset = await env.ASSETS.fetch(new Request(ORIGIN + '/contact/' + name + '/'));
   const body = (await asset.text()).replaceAll('%MISSING%', slots.MISSING).replaceAll('%REQUEST_ID%', slots.REQUEST_ID);
-  // CSP などはアセットから引き継ぎ、置換で長さが変わる Content-Length だけ落とす
+  // CSP などはアセットから引き継ぎ、置換で長さが変わる Content-Length とアセットのキャッシュ状態を示す cf-cache-status を落とす
   const headers = new Headers(asset.headers);
   headers.delete('content-length');
+  headers.delete('cf-cache-status');
   return new Response(body, { status, headers });
 }
