@@ -14,6 +14,8 @@ const LABELS = { name: '名前', email: 'メールアドレス', message: '本�
 const CONTROL = /\p{Cc}/u;
 const EMAIL = /^[^\s@<>()",;:\\]+@[^\s@<>()",;:\\]+\.[^\s@<>()",;:\\]+$/;
 const DEPLOY_HOOK = 'https://api.cloudflare.com/client/v4/workers/builds/deploy_hooks/';
+const BUILD_ATTEMPTS = 3;
+const BUILD_RETRY_MS = 10_000;
 const LIMIT = 3;
 const WINDOW_MS = 60_000;
 
@@ -58,12 +60,19 @@ export default {
   // 失敗は throw して Cron Events に失敗として残す
   async scheduled(_controller: unknown, env: Env): Promise<void> {
     const started = Date.now();
-    const r = await triggerBuild(env.DEPLOY_HOOK_URL);
+    let r: Awaited<ReturnType<typeof triggerBuild>>;
+    let attempts = 0;
+    do {
+      if (attempts) await new Promise((resolve) => setTimeout(resolve, BUILD_RETRY_MS));
+      r = await triggerBuild(env.DEPLOY_HOOK_URL);
+      attempts++;
+    } while (!('buildId' in r) && r.transient && attempts < BUILD_ATTEMPTS);
     log({
       level: 'buildId' in r ? 'info' : 'error',
       msg: 'Deploy Hook を呼び出した',
       ...(r.status && { 'http.response.status_code': r.status }),
       duration_ms: Date.now() - started,
+      'app.build.attempts': attempts,
       ...('buildId' in r
         ? { 'app.build.id': r.buildId }
         : { 'error.type': r.errorType, 'app.error.origin': 'system', 'app.error.transient': r.transient }),
@@ -79,7 +88,8 @@ async function triggerBuild(
   if (!url?.startsWith(DEPLOY_HOOK)) return { errorType: 'missing_config', transient: false };
   let res: Response;
   try {
-    res = await fetch(url, { method: 'POST', redirect: 'error', signal: AbortSignal.timeout(30_000) });
+    // Workers の fetch は redirect: 'error' を受け付けず TypeError を投げる。3xx は !res.ok で失敗として扱う
+    res = await fetch(url, { method: 'POST', redirect: 'manual', signal: AbortSignal.timeout(30_000) });
   } catch (e) {
     // message には URL が混ざりうるため、種別の名前だけを残す
     return { errorType: e instanceof Error ? e.name : 'fetch_failed', transient: true };
