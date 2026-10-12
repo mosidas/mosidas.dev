@@ -377,15 +377,24 @@ test('wrangler.jsonc は vars を持たず、microCMS・GitHub の値を Worker 
 const HOOK = 'https://api.cloudflare.com/client/v4/workers/builds/deploy_hooks/hook-secret-123';
 
 // Deploy Hook の fetch とログを捕まえて scheduled を 1 回走らせ、ログが 1 行で URL を含まないことを確かめる
+// 再試行の待ちは setTimeout と Date をモックして進め、実時間では待たない
 async function runScheduled(t, env, respond = async () => Response.json({ success: true, result: { build_uuid: 'build-1' } })) {
   const calls = [];
   t.mock.method(globalThis, 'fetch', async (url, init) => {
     calls.push({ url: String(url), init });
-    return respond();
+    return respond(calls.length);
   });
   const out = t.mock.method(console, 'log', () => {});
   const err = t.mock.method(console, 'error', () => {});
-  const error = await worker.scheduled({ cron: '0 21 * * *' }, env).then(() => undefined, (e) => e);
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  let settled = false;
+  const pending = worker.scheduled({ cron: '0 21 * * *' }, env).then(() => undefined, (e) => e).finally(() => { settled = true; });
+  while (!settled) {
+    await new Promise((resolve) => setImmediate(resolve));
+    t.mock.timers.tick(10_000);
+  }
+  const error = await pending;
+  t.mock.timers.reset();
   const lines = [...out.mock.calls, ...err.mock.calls].map((c) => c.arguments[0]);
   assert.equal(lines.length, 1);
   assert.ok(!lines[0].includes('hook-secret-123'), 'ログに URL が含まれる');
@@ -399,12 +408,13 @@ test('scheduled は Deploy Hook を POST で呼び、build_uuid を info ログ�
   assert.equal(calls.length, 1);
   assert.equal(calls[0].url, HOOK);
   assert.equal(calls[0].init.method, 'POST');
-  assert.equal(calls[0].init.redirect, 'error');
+  assert.equal(calls[0].init.redirect, 'manual');
   assert.ok(calls[0].init.signal instanceof AbortSignal);
   assert.equal(stream, 'log');
   assert.equal(log.level, 'info');
   assert.equal(log['app.build.id'], 'build-1');
   assert.equal(log['http.response.status_code'], 200);
+  assert.equal(log['app.build.attempts'], 1);
   assert.equal(typeof log.duration_ms, 'number');
 });
 
@@ -420,20 +430,40 @@ for (const [label, url] of [
     assert.equal(log.level, 'error');
     assert.equal(log['error.type'], 'missing_config');
     assert.equal(log['app.error.transient'], false);
+    assert.equal(log['app.build.attempts'], 1);
   });
 }
 
-for (const [label, respond, type, transient] of [
-  ['500 を返す', async () => new Response('x', { status: 500 }), 'deploy_hook_status', true],
-  ['build_uuid の無い本文を返す', async () => Response.json({ success: true, result: {} }), 'bad_response', false],
-  ['例外を投げる', async () => { throw new TypeError(`${HOOK} に届かない`); }, 'TypeError', true],
+for (const [label, respond, type, transient, attempts, status] of [
+  ['500 を返し続ける', async () => new Response('x', { status: 500 }), 'deploy_hook_status', true, 3, 500],
+  ['301 で転送する', async () => new Response(null, { status: 301, headers: { location: 'https://example.com/' } }), 'deploy_hook_status', false, 1, 301],
+  ['build_uuid の無い本文を返す', async () => Response.json({ success: true, result: {} }), 'bad_response', false, 1, 200],
+  ['例外を投げ続ける', async () => { throw new TypeError(`${HOOK} に届かない`); }, 'TypeError', true, 3, undefined],
 ]) {
-  test(`scheduled は Deploy Hook が${label}と reject し、URL を含まない error ログを残す`, async (t) => {
-    const { error, log } = await runScheduled(t, { DEPLOY_HOOK_URL: HOOK }, respond);
+  test(`scheduled は Deploy Hook が${label}と ${attempts} 回試して reject し、URL を含まない error ログを残す`, async (t) => {
+    const { calls, error, log } = await runScheduled(t, { DEPLOY_HOOK_URL: HOOK }, respond);
     assert.ok(error instanceof Error);
+    assert.equal(calls.length, attempts);
     assert.equal(log.level, 'error');
     assert.equal(log['error.type'], type);
     assert.equal(log['app.error.origin'], 'system');
     assert.equal(log['app.error.transient'], transient);
+    assert.equal(log['http.response.status_code'], status);
+    assert.equal(log['app.build.attempts'], attempts);
+    // 試行の間を 10 秒ずつ空ける
+    assert.equal(log.duration_ms, (attempts - 1) * 10_000);
   });
 }
+
+test('scheduled は 1 回目が 500 でも 2 回目が成功すれば info ログを残して終える', async (t) => {
+  const { calls, error, log, stream } = await runScheduled(t, { DEPLOY_HOOK_URL: HOOK }, async (n) =>
+    n === 1 ? new Response('x', { status: 500 }) : Response.json({ success: true, result: { build_uuid: 'build-2' } }),
+  );
+  assert.equal(error, undefined);
+  assert.equal(calls.length, 2);
+  assert.equal(stream, 'log');
+  assert.equal(log.level, 'info');
+  assert.equal(log['app.build.id'], 'build-2');
+  assert.equal(log['app.build.attempts'], 2);
+  assert.equal(log.duration_ms, 10_000);
+});
