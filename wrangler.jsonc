@@ -1,0 +1,9 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "mosidas-dev",
+  "compatibility_date": "2026-10-12",
+  // shortcut: アクセス数・エラーのメトリクスなし, R7(アクセス解析)で計装する
+  "assets": {
+    "directory": "./dist"
+  }
+}
