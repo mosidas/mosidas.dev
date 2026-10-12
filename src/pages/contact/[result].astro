@@ -1,0 +1,40 @@
+---
+import type { GetStaticPaths, InferGetStaticPropsType } from 'astro';
+import Base from '../../layouts/Base.astro';
+
+export const getStaticPaths = (() => {
+  // %MISSING% と %REQUEST_ID% は Worker(src/worker.ts)が応答のときに置き換える
+  const pages = {
+    sent: { heading: '送信した', body: ['問い合わせを送信した。返信が必要な内容には、入力されたメールアドレスへ返信する。'] },
+    invalid: {
+      heading: '送信できなかった',
+      body: ['次の項目が未入力か、形式・長さが正しくない: %MISSING%', 'ブラウザーの戻る操作で入力画面へ戻り、直してから送信してほしい。'],
+    },
+    rejected: { heading: '送信を確認できなかった', body: ['問い合わせのページを再読み込みしてから、もう一度送信してほしい。'] },
+    limited: { heading: '送信が多すぎる', body: ['1 分ほど待ってから、もう一度送信してほしい。'] },
+    failed: {
+      heading: '送信に失敗した',
+      body: ['送信できなかった。内容は保存していないので、時間をおいて再度送信してほしい。', '識別番号: %REQUEST_ID%'],
+    },
+  };
+  return Object.entries(pages).map(([result, props]) => ({ params: { result }, props }));
+}) satisfies GetStaticPaths;
+
+const { heading, body } = Astro.props as InferGetStaticPropsType<typeof getStaticPaths>;
+---
+
+<Base title={`${heading} | mosidas`} description="問い合わせの送信結果。" noindex>
+  <h1>{heading}</h1>
+  {body.map((text) => <p>{text}</p>)}
+  <p class="back"><a href="/contact/">問い合わせのページへ戻る</a></p>
+</Base>
+
+<style>
+  p {
+    margin: 0 0 16px;
+  }
+
+  .back {
+    margin: 48px 0 0;
+  }
+</style>
