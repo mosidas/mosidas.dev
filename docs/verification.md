@@ -164,3 +164,135 @@ microCMS の Hobby プランで、Deploy Hook の URL をカスタム通知の W
 - PR #6 のマージ直後の `main` のビルド(09:18:38〜09:19:57 UTC)は、ビルド変数が未登録だったため `missing_credentials` で失敗し、前回の配信が続いた。ビルド変数を登録して Retry build を実行し、09:28:44 UTC までにお知らせの一覧が配信された。ビルド変数は実装のマージ前に登録する。
 - 確認した端末では DNS の負のキャッシュが残っていたため、5.3 と同じく `curl` に `--resolve mosidas.dev:443:<dig +short mosidas.dev A の値>` を付けて実行した。
 - Workers Builds の非 production ブランチ(PR のブランチ)のチェックは、PR #2・#3・#6 で失敗している。原因はダッシュボードのビルドログで確認しておらず、継続課題である。
+
+## 7. 問い合わせフォーム(メール送信とレート制限)
+
+### 7.1 方式
+
+問い合わせ API は、`src/worker.ts` の `POST /api/contact` である。
+処理は次の順に行う。
+
+1. POST 以外の要求を 405 で拒否する。
+2. Origin を検査し、不一致を 403 で拒否する。
+3. 設定に不備があれば 503 を返す。
+4. レート制限を超えた要求を 429 で拒否する。
+5. 本文の形式を検査し、400 または 413 を返す。
+6. 項目を検証し、不備を 400 で拒否する。
+7. Turnstile のトークンが無ければ 403 で拒否する。
+8. siteverify の結果に応じて 403 または 503 を返す。
+9. メールを送信する。送信に失敗したら 502 を返す。成功したら 303 で `/contact/sent/` へ移す。
+
+405 を除き、失敗したときは、静的な結果ページ(`/contact/{invalid,rejected,limited,failed}/`)に状態コードを付けて返す。
+405 は本文の無い応答である。
+
+メール送信には、Cloudflare Email Routing の `send_email` バインディングを使う。設定は `wrangler.jsonc` の `send_email: [{ name: "EMAIL" }]` である。
+送信先は、Email Routing で検証済みの宛先(Destination addresses)に限られる。
+検証済みの宛先への送信は、全プランで無料である。
+送信元は自ドメインのアドレス(`contact@mosidas.dev`)に限る。
+Reply-To には、送信者が入力したアドレスを入れる。
+Email Routing を有効にすると、MX と SPF の DNS レコードがゾーンに自動で追加される。
+
+Resend は外部のアカウントが増えるため見送った。
+MailChannels は Workers 向けの無料提供が終わったため見送った。
+
+ボット対策には Turnstile を使う。Widget mode は Managed である。
+サイトキーはビルド変数 `PUBLIC_TURNSTILE_SITE_KEY`、シークレットキーは Worker のシークレット `TURNSTILE_SECRET_KEY` に登録する。
+
+レート制限は、IP ごとの Durable Object で数える(PR #9、コミット `e9ef8e6`)。
+Durable Object は SQLite バックエンドで、Free プランで利用できる。
+同一 IP からの受付は 60 秒に 3 回までとし、4 回目以降は 429 と `limited` の結果ページを返す。
+Durable Object の呼び出しが失敗したときは、503 で拒否する(fail closed)。
+この方式にした経緯は 7.4 に書く。
+
+問い合わせの内容は Cloudflare 側に保存しない。
+Durable Object には受付の時刻だけを保存する。保存した時刻は、最後の受付から 60 秒後の alarm で削除する。
+
+### 7.2 手順
+
+次の手順はユーザーがダッシュボードで行う。
+
+1. Turnstile でウィジェットを作る。Hostname は `mosidas.dev`、Widget mode は Managed にする。
+2. ゾーン `mosidas.dev` の Email Routing を有効にする。MX と SPF のレコードは自動で追加される。Destination addresses に本人のアドレスを追加し、届いたメールのリンクで検証する。
+3. Worker `mosidas-dev` の Settings > Variables and Secrets に、シークレット `TURNSTILE_SECRET_KEY`(1. のシークレットキー)と `CONTACT_TO`(2. で検証した宛先)を登録する。
+4. Settings > Build > Variables and secrets に、ビルド変数 `PUBLIC_TURNSTILE_SITE_KEY`(1. のサイトキー)を登録する。未登録だと `main` のビルドが「PUBLIC_TURNSTILE_SITE_KEY が未設定」で失敗し、前回の配信が続く。
+5. PR #7(docs: microCMS からのお知らせ掲載の手順と所要時間を記録する)をマージし、次に PR #8(feat: 問い合わせフォームを公開する)をマージする。
+6. `https://mosidas.dev/contact/` をブラウザーで開く。Turnstile のウィジェットが表示され、コンソールに CSP 違反が出ないことを確かめる。
+7. フォームから送信する。送信完了の画面が表示され、本人宛のメールが届くことを確かめる。
+
+### 7.3 配信と動作の確認
+
+PR #8 のマージから配信までの経過は次のとおりである。
+
+| 時刻(UTC) | 出来事 |
+| :-- | :-- |
+| 10:14:23 | PR #8 をマージした(マージコミット `16bb1c6`) |
+| 10:14:26〜10:15:21 | マージ直後のビルドが成功し、続く `npx wrangler deploy` が Cloudflare API の 504 Gateway Timeout で失敗した |
+| 10:17:51 | ユーザーが Retry build を実行し、デプロイが成功した |
+| 10:17:55 | `/contact/` が Turnstile 付きで配信された |
+
+504 は Cloudflare 側の一時障害である。
+Free プランで、Rate Limiting バインディングと `send_email` を含むデプロイは通った。両バインディングは `npx wrangler versions view` で確認した。
+
+ユーザーが実ブラウザーからフォームで送信し、次のことを確かめた。
+
+| 確認項目 | 結果 |
+| :-- | :-- |
+| 送信完了の画面 | 表示された |
+| メールの到着 | 本人宛(Email Routing で検証済みの宛先)に 10:23 UTC に届いた |
+| 送信元 | `contact@mosidas.dev` |
+| 件名 | mosidas.dev への問い合わせ |
+| Reply-To | 送信者が入力したアドレス |
+
+ユーザーの申告では、送信から到着までは 1 分以内である。送信の時刻は計測していない。
+
+拒否の経路は、`curl` で次のとおり確かめた。
+
+| 要求 | 状態コード |
+| :-- | :-- |
+| Turnstile のトークンが無い POST | 403(ログの outcome は `turnstile_missing`) |
+| Origin が無い POST | 403 |
+| GET | 405 |
+| 必須項目が空の POST | 400 |
+
+### 7.4 レート制限
+
+PR #8 の時点では、Rate Limiting バインディング(`ratelimits`)でレート制限を設けた。設定は 60 秒に 3 回まで、キーは `cf-connecting-ip` である。
+その後、ゾーンの WAF レート制限ルールも試した。
+どちらも 429 を一度も返さなかった。
+
+| 方式 | 試験の時刻(UTC) | 送った要求 | 結果 |
+| :-- | :-- | :-- | :-- |
+| Rate Limiting バインディング | 10:21:09〜10:22:13 | 同一 IP から 2 秒間隔で 30 回 | 429 は 0 回 |
+| Rate Limiting バインディング | 記録なし | 同一 IP から間隔なしで 20 回連続 | 429 は 0 回 |
+| WAF レート制限ルール | 10:32〜10:35 | 60 回以上 | 429 は 0 回 |
+
+公式文書は、Rate Limiting バインディングを次のように説明している。
+
+> permissive, eventually consistent, and intentionally designed to not be used as an accurate accounting system
+
+WAF レート制限ルールは、ユーザーが 10:32:13 UTC に作成した。
+Free プランで作れる 1 件を使い、パスは `/api/contact`、IP ごとに 10 秒に 3 回まで、超えたら Block とした。
+ルールの Analytics では、149 件の要求がルールに一致した。遮断は 0 件だった。
+Free プランでは数え方(cached assets への適用)を変更できない。
+そのため、Worker が応答する要求は、ルールに一致しても閾値の判定の計数に入らないと推定する。
+WAF ルールは削除せずに残してある。
+
+対策として、Durable Objects で IP ごとに数える方式に置き換えた(7.1)。
+本番での計測は、マージ後に行う。計測では、同一 IP からの 60 秒以内の 4 回目の POST が 429 になることを確かめる。結果の表は後続の PR で足す。
+
+推進室の資料(homepage-replace)は「レート制限を設ける」と書いている。
+この要求は、Cloudflare の Rate Limiting バインディングと WAF ルールでは、Free プランで実現できなかった。
+資料の記述に、Durable Objects による自前の計数が必要である旨を補う必要がある。
+
+### 7.5 注意点
+
+- デプロイの 504 は Cloudflare 側の一時障害で、Retry build で回復した。
+- Workers Builds の非 production ブランチのチェックの失敗(6.5)は、PR #7・#8 でも続いている。
+- 確認した端末では DNS の負のキャッシュが残っていたため、5.3・6.5 と同じく `curl` に `--resolve` を付けて実行した。
+
+出典:
+
+- [Rate Limiting · Cloudflare Workers docs](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/)
+- [Send emails from Workers · Cloudflare Email Routing docs](https://developers.cloudflare.com/email-routing/email-workers/send-email-workers/)
+- [Pricing · Cloudflare Durable Objects docs](https://developers.cloudflare.com/durable-objects/platform/pricing/)
+- [Turnstile · Cloudflare docs](https://developers.cloudflare.com/turnstile/)

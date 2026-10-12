@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import worker from '../src/worker.ts';
+import worker, { ContactRateLimiter } from '../src/worker.ts';
 
 const env = { ASSETS: { fetch: async () => new Response('asset') } };
 
@@ -48,7 +48,7 @@ const FORM = {
 const SECRETS = [FORM.name, FORM.email, FORM.message, FORM['cf-turnstile-response'], IP, 'owner@example.com', 'test-secret'];
 const CSP = "default-src 'self'";
 
-function contactEnv({ limit = true, send, ...rest } = {}) {
+function contactEnv({ limiter = async () => new Response(null, { status: 204 }), send, ...rest } = {}) {
   const sent = [];
   const limits = [];
   return {
@@ -62,16 +62,17 @@ function contactEnv({ limit = true, send, ...rest } = {}) {
         if (send) await send(m);
       },
     },
-    CONTACT_RATE_LIMITER: {
-      limit: async (o) => {
-        limits.push(o);
-        return { success: limit };
+    CONTACT_LIMITER: {
+      idFromName: (n) => {
+        limits.push(n);
+        return n;
       },
+      get: () => ({ fetch: async () => limiter() }),
     },
     ASSETS: {
       fetch: async (req) =>
         new Response(`${new URL(req.url).pathname} [%MISSING%] [%REQUEST_ID%]`, {
-          headers: { 'content-security-policy': CSP, 'content-type': 'text/html; charset=utf-8' },
+          headers: { 'content-security-policy': CSP, 'content-type': 'text/html; charset=utf-8', 'cf-cache-status': 'HIT' },
         }),
     },
     ...rest,
@@ -142,6 +143,8 @@ test('send が例外を投げると 502 で失敗ページを返し、error ロ�
   assert.equal(res.status, 502);
   assert.equal(await res.text(), '/contact/failed/ [] [ray-test-1]');
   assert.equal(res.headers.get('content-security-policy'), CSP);
+  assert.equal(res.headers.get('cf-cache-status'), null);
+  assert.equal(res.headers.get('content-length'), null);
   assert.equal(log.level, 'error');
   assert.equal(log['app.contact.outcome'], 'email_send_failed');
   assert.equal(log['error.type'], 'E_TEST');
@@ -218,16 +221,85 @@ for (const email of ['taro', 'taro@example', 'ta ro@example.com', 'taro@example.
   });
 }
 
-test('レート制限を超えると 429 で siteverify も send も呼ばない', async (t) => {
-  const env = contactEnv({ limit: false });
+test('DO が 429 を返すと 429 で siteverify も send も呼ばない', async (t) => {
+  const env = contactEnv({ limiter: async () => new Response(null, { status: 429 }) });
   const { res, log, verifyCalls } = await run(t, env, contactRequest());
   assert.equal(res.status, 429);
   assert.equal(await res.text(), '/contact/limited/ [] [ray-test-1]');
-  assert.deepEqual(env.limits, [{ key: IP }]);
+  assert.deepEqual(env.limits, [IP]);
   assert.equal(verifyCalls.length, 0);
   assert.equal(env.sent.length, 0);
   assert.equal(log['app.contact.outcome'], 'rate_limited');
   assert.equal(log.level, 'warn');
+});
+
+test('DO の fetch が例外を投げると 503 で siteverify も send も呼ばない', async (t) => {
+  const env = contactEnv({
+    limiter: async () => {
+      throw new TypeError(`${IP} に届かない`);
+    },
+  });
+  const { res, log, verifyCalls } = await run(t, env, contactRequest());
+  assert.equal(res.status, 503);
+  assert.equal(await res.text(), '/contact/failed/ [] [ray-test-1]');
+  assert.equal(verifyCalls.length, 0);
+  assert.equal(env.sent.length, 0);
+  assert.equal(log.level, 'error');
+  assert.equal(log['app.contact.outcome'], 'rate_limiter_unavailable');
+  assert.equal(log['app.error.origin'], 'system');
+  assert.equal(log['app.error.transient'], true);
+  assert.equal(log['error.type'], 'TypeError');
+});
+
+test('DO が想定外の状態 500 を返すと 503 で send を呼ばない', async (t) => {
+  const env = contactEnv({ limiter: async () => new Response(null, { status: 500 }) });
+  const { res, log, verifyCalls } = await run(t, env, contactRequest());
+  assert.equal(res.status, 503);
+  assert.equal(verifyCalls.length, 0);
+  assert.equal(env.sent.length, 0);
+  assert.equal(log['app.contact.outcome'], 'rate_limiter_unavailable');
+});
+
+function limiterState() {
+  const data = new Map();
+  const alarms = [];
+  return {
+    data,
+    alarms,
+    storage: {
+      get: async (k) => data.get(k),
+      put: async (k, v) => void data.set(k, v),
+      setAlarm: async (at) => void alarms.push(at),
+      deleteAll: async () => data.clear(),
+    },
+  };
+}
+
+test('ContactRateLimiter は 60 秒に 3 回まで受け付け、拒否した試行は数えない', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: 0 });
+  const state = limiterState();
+  const limiter = new ContactRateLimiter(state, {});
+  const status = async () => (await limiter.fetch()).status;
+  assert.equal(await status(), 204);
+  t.mock.timers.tick(1000);
+  assert.equal(await status(), 204);
+  t.mock.timers.tick(1000);
+  assert.equal(await status(), 204);
+  assert.deepEqual(state.alarms, [60_000, 61_000, 62_000]);
+  assert.equal(await status(), 429);
+  assert.equal(await status(), 429);
+  assert.deepEqual(state.data.get('hits'), [0, 1000, 2000]);
+  // 最初の受付から 59 999 ミリ秒後はまだ窓の中、60 000 ミリ秒後に窓から外れる
+  t.mock.timers.tick(57_999);
+  assert.equal(await status(), 429);
+  t.mock.timers.tick(1);
+  assert.equal(await status(), 204);
+  assert.deepEqual(state.data.get('hits'), [1000, 2000, 60_000]);
+  assert.equal(state.alarms.at(-1), 120_000);
+  t.mock.timers.tick(60_000);
+  assert.equal(await status(), 204);
+  await limiter.alarm();
+  assert.equal(state.data.size, 0);
 });
 
 test('別の Origin からの要求は 403 を返す', async (t) => {
@@ -235,6 +307,7 @@ test('別の Origin からの要求は 403 を返す', async (t) => {
   const { res, log } = await run(t, env, contactRequest(FORM, { headers: { origin: 'https://evil.example' } }));
   assert.equal(res.status, 403);
   assert.equal(env.sent.length, 0);
+  assert.equal(env.limits.length, 0);
   assert.equal(log['app.contact.outcome'], 'bad_origin');
 });
 
@@ -266,6 +339,7 @@ test('シークレットが未設定なら 503 を返す', async (t) => {
   assert.equal(res.status, 503);
   assert.equal(await res.text(), '/contact/failed/ [] [ray-test-1]');
   assert.equal(verifyCalls.length, 0);
+  assert.equal(env.limits.length, 0);
   assert.equal(log.level, 'error');
   assert.equal(log['app.contact.outcome'], 'missing_config');
 });
