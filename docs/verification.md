@@ -386,7 +386,7 @@ tree の sha が前回のコミットと同じなら、コミットしない。
 コミット先を `main` にしない理由は 2 つある。
 
 - `main` のルールセットは PR を必須にしており、直接のコミットを拒む。
-- 本番のビルドは `main` への push でしか走らない。そのため、スナップショットのコミットが次のビルドを起動して繰り返すことが、構造上起きない。Workers Builds には `[skip ci]` の文書が無い。
+- 本番のビルド(`WORKERS_CI_BRANCH` が `main`)は、`main` への push と Deploy Hook でだけ走る。`content-snapshot` への push で走るのは非 production のビルドであり、`build.mjs` はスナップショットをコミットしない。そのため、コミットが次のコミットを起動して繰り返すことは構造上起きない。Workers Builds には `[skip ci]` の文書が無い。
 
 コミットと Issue の作成は、`WORKERS_CI` があり、`WORKERS_CI_BRANCH` が `main` のときだけ行う。
 トークンはビルドのシークレット `SNAPSHOT_GITHUB_TOKEN` である。
@@ -421,11 +421,11 @@ fine-grained PAT で、対象は mosidas/mosidas.dev だけ、権限は Contents
 
 1. GitHub で fine-grained PAT を発行する。Repository access は mosidas/mosidas.dev だけ、Permissions は Contents: Read and write と Issues: Read and write にし、有効期限を設ける。
 2. Worker `mosidas-dev` の Settings > Build > Variables and secrets に、シークレット `SNAPSHOT_GITHUB_TOKEN`(1. の PAT)を登録する。登録は PR のマージ前に行う。未登録だと `main` のビルドが `missing_credentials` で失敗し、前回の配信が続く。
-3. Settings > Builds > Deploy Hooks にある `main` のフック(6.2 で作成済み)の URL を、Settings > Variables and Secrets にシークレット `DEPLOY_HOOK_URL` として登録する。
+3. Settings > Build > Deploy Hooks にある `main` のフック(6.2 で作成済み)の URL を、Settings > Variables and Secrets にシークレット `DEPLOY_HOOK_URL` として登録する。
 4. PR をマージする。
 5. マージ後のビルドが成功し、`content-snapshot` ブランチが作られたことを確かめる(`gh api repos/mosidas/mosidas.dev/branches/content-snapshot`)。
 6. 任意で、`content-snapshot` の削除と非 fast-forward の push を禁じるルールセットを作る。
-7. Settings > Builds > Build watch paths の excludes で、`content-snapshot` への push がプレビュービルドを起こさないようにする。除外できるかは、push のあとの挙動で確かめる。
+7. Settings > Build > Branch control で、非 production ブランチのビルドから `content-snapshot` を除外する。除外しないと、orphan ブランチには `package.json` が無いため、非 production のビルドが毎日失敗して通知が届く。ブランチを指定して除外する設定が無ければ、同じ画面の Enable Preview Builds を外す(PR のプレビューも止まる)。除外できたかは、次の `content-snapshot` への push のあとにビルドの一覧で確かめる。
 
 ### 8.3 計測
 
@@ -435,8 +435,8 @@ fine-grained PAT で、対象は mosidas/mosidas.dev だけ、権限は Contents
 | :-- | :-- | :-- |
 | AC1: Cron Triggers の起動 | Worker の Logs または Metrics の Cron Triggers(Cron Events)に起動が記録される | 未計測 |
 | AC2: コンテンツの保存 | microCMS の変更時刻と、`content-snapshot` のコミット時刻を比べる | 未計測 |
-| AC3: 失敗時の配信の継続 | ビルドのシークレット `MICROCMS_API_KEY` を一時的に誤った値にして Deploy Hook を呼び(`http_status_401`)、サイトが前回の内容で閲覧できることを確かめる | 未計測 |
-| AC4: 失敗の通知 | AC3 と同じ操作で Issue が作られることを確かめる。起点はビルドログの error 行の時刻、終点は `gh issue view <番号> --json createdAt` の値である | 未計測 |
+| AC3: 失敗時の配信の継続 | ビルドのシークレット `MICROCMS_API_KEY` を一時的に誤った値にして Deploy Hook を呼び(`http_status_401`)、サイトが前回の内容で閲覧できることを確かめる。確かめたら `MICROCMS_API_KEY` を元の値に戻す | 未計測 |
+| AC4: 失敗の通知 | AC3 と同じ操作で Issue が作られることを確かめる。起点はビルドログの error 行の時刻、終点は `gh issue view <番号> --json createdAt` の値である。Issue の error.type は `exit_code_1` で、`http_status_401` は本文の stderr の末尾に出る | 未計測 |
 
 ### 8.4 注意点
 
@@ -448,7 +448,7 @@ fine-grained PAT で、対象は mosidas/mosidas.dev だけ、権限は Contents
 スナップショットからの復元は、次の手順で行う。自動化は対象外である。
 
 1. `git fetch origin content-snapshot` を実行する。
-2. `git checkout origin/content-snapshot -- src/data/news.json public/news/images` で内容を取り出す。
+2. `git restore --source=origin/content-snapshot --worktree -- src/data/news.json public/news/images` で内容を取り出す。インデックスは変えないので、`main` の追跡ファイルはステージされない。
 3. 取り出した内容を、microCMS に手で登録し直す。
 
 推進室の資料(homepage-replace)との対応は次のとおりである。
