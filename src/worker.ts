@@ -81,7 +81,12 @@ export class ContactRateLimiter {
   }
 
   async alarm(): Promise<void> {
-    await this.state.storage.deleteAll();
+    const now = Date.now();
+    // alarm は受付と前後して走るため、窓の内側の受付時刻を残して次の alarm を張り直す
+    const hits = ((await this.state.storage.get<number[]>('hits')) ?? []).filter((t) => now - t < WINDOW_MS);
+    if (hits.length === 0) return this.state.storage.deleteAll();
+    await this.state.storage.put('hits', hits);
+    await this.state.storage.setAlarm(hits[0] + WINDOW_MS);
   }
 }
 
