@@ -42,7 +42,14 @@ test('dist/index.html がお知らせの見出しと各お知らせの題名・�
     assert.ok(html.includes('お知らせはまだない。'));
   }
   for (const { title, publishedAt } of news) {
-    assert.ok(html.includes(title), `題名がない: ${title}`);
+    // Astro は html-escaper と同じ 5 文字を置換して描画する
+    const escaped = title
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#39;');
+    assert.ok(html.includes(`>${escaped}</h3>`), `題名がない: ${title}`);
     assert.ok(html.includes(`datetime="${publishedAt}"`), `日付がない: ${publishedAt}`);
   }
 });
