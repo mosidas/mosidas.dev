@@ -63,17 +63,30 @@ test('日付の整形が JST の YYYY-MM-DD を返す', () => {
   assert.equal(ymd.format(new Date('2026-01-01T15:00:00.000Z')), '2026-01-02');
 });
 
-test('dist/index.html が whoami・about.txt・stack/・news.log の 4 ブロックと、GitHub・Zenn・/works/・/articles/・/contact/・/privacy/ へのリンクを持つ', () => {
+test('dist/index.html が whoami・about.txt・stack.txt・news.log の 4 ブロックと、GitHub・Zenn・/works/・/articles/・/contact/・/privacy/ へのリンクを持つ', () => {
   assert.ok(html.includes('<title>mosida</title>'));
-  for (const command of ['whoami', 'cat about.txt', 'ls stack/', 'tail news.log']) {
+  for (const command of ['whoami', 'cat about.txt', 'cat stack.txt', 'tail news.log']) {
     assert.ok(html.includes(`</span> ${command}</p>`), `プロンプトがない: ${command}`);
   }
   assert.match(html, /<h1[^>]*>mosida<\/h1>/);
-  assert.match(html, /<p[^>]*class="about"[^>]*>ソフトウェアエンジニア。/);
-  for (const dir of ['swift/', 'go/', 'csharp/', 'typescript/']) {
-    assert.match(html, new RegExp(`<li[^>]*>${dir}</li>`), `stack がない: ${dir}`);
+  assert.match(html, /<p[^>]*class="about"[^>]*>名古屋でソフトウェアエンジニアをしています。<\/p>/);
+  assert.match(html, /<li[^>]*>Swift \/ Go \/ C# \/ TypeScript<\/li>/);
+  assert.ok(html.includes('aria-label="使用技術"'));
+  for (const hobby of ['カラオケ', 'ゴルフ']) {
+    assert.match(html, new RegExp(`<li[^>]*>${hobby}</li>`), `趣味がない: ${hobby}`);
   }
-  for (const href of ['https://github.com/mosidas', 'https://zenn.dev/mosida', '/works/', '/articles/', '/contact/', '/privacy/']) {
+  assert.ok(html.includes('>読んだ本</a>'));
+  assert.ok(html.includes('>LAPRAS<'));
+  for (const href of [
+    'https://github.com/mosidas',
+    'https://zenn.dev/mosida',
+    '/works/',
+    '/articles/',
+    '/contact/',
+    '/privacy/',
+    'https://bookmeter.com/users/1496591/books/read',
+    'https://lapras.com/public/SI8OEWA',
+  ]) {
     assert.ok(html.includes(`href="${href}"`), `リンクがない: ${href}`);
   }
 });
