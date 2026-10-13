@@ -141,6 +141,8 @@ const currentHref = '/' + (section && section + '/');
     --font-sans: system-ui, -apple-system, 'Hiragino Sans', 'Noto Sans JP', sans-serif;
     color-scheme: light dark;
     color: var(--text);
+    /* 縦スクロールバーの有無でパネルの位置がずれないよう、溝を両側に常に確保する */
+    scrollbar-gutter: stable both-edges;
   }
 
   @media (prefers-color-scheme: dark) {
