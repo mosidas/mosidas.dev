@@ -21,7 +21,6 @@ const ymd = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Tokyo' });
       <li>csharp/</li>
       <li>typescript/</li>
     </ul>
-    <p class="prompt-line" aria-hidden="true"><span class="prompt">❯</span> <span class="cursor"></span></p>
     <section class="news" aria-labelledby="news-heading">
       <h2 id="news-heading" class="visually-hidden">お知らせ</h2>
       <p class="prompt-line" aria-hidden="true"><span class="prompt">❯</span> tail news.log</p>
@@ -49,6 +48,7 @@ const ymd = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Tokyo' });
         )
       }
     </section>
+    <p class="prompt-line cursor-line" aria-hidden="true"><span class="prompt">❯</span> <span class="cursor"></span></p>
   </Terminal>
 </Base>
 
@@ -82,6 +82,11 @@ const ymd = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Tokyo' });
     gap: 4px;
     margin-top: auto;
     padding-top: 24px;
+  }
+
+  /* 窓の下端へは .news の margin-top: auto で寄せ、カーソルは一覧の直下に付ける(Terminal の .cursor-line の auto を上書き) */
+  .news + .cursor-line {
+    margin-top: 0;
   }
 
   .news-row {

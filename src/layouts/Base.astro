@@ -117,6 +117,7 @@ const currentHref = '/' + (section && section + '/');
         accent 9.98 / 9.39 / 10.13 / 9.39、accent2 11.54 / 10.87 / 11.72 / 10.87、term-sub 7.50 / 7.06 / 7.61 / 7.06、
         反転のナビ: 文字 14.53・$ 4.65、塗りのボタン 10.27
       入力欄の枠線(--faint、非テキストの 3:1): ライト 5.11 / 5.24、ダーク 4.93 / 4.64
+      ダークの装飾の枠線(--line、term-bg / panel): 1.92 / 1.89。#1f2430 では窓の枠が背景に溶けたため上げた
       モックの値は文字の 4.5:1 を満たさないため調整した: ライトの #8A9199 は 3.11、#FA8D3E は 2.29、#A37ACC は 3.29、ダークの #6C7380 は 3.99
     */
     --outer: #f3f4f5;
@@ -149,7 +150,7 @@ const currentHref = '/' + (section && section + '/');
       --panel: #0d1017;
       --dot-in: #151a23;
       --card: #131721;
-      --line: #1f2430;
+      --line: #3a4253;
       --hover: #131721;
       --text: #e6e1cf;
       --muted: #bfbdb6;
@@ -167,7 +168,8 @@ const currentHref = '/' + (section && section + '/');
   :global(body) {
     box-sizing: border-box;
     display: grid;
-    place-items: center;
+    /* 縦は上端に置く。中央だとメインの高さが違うページへ移るたびにナビの位置がずれる */
+    place-items: start center;
     min-height: 100vh;
     margin: 0;
     padding: 16px;
