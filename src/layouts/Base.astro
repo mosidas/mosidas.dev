@@ -267,6 +267,7 @@ const currentHref = '/' + (section && section + '/');
   main :global(a) {
     color: inherit;
     text-decoration: underline;
+    text-underline-offset: 0.2em;
     overflow-wrap: anywhere;
   }
 
@@ -317,7 +318,8 @@ const currentHref = '/' + (section && section + '/');
     min-height: 44px;
     font: 0.75rem/1.5 var(--font-mono);
     color: var(--faint);
-    text-decoration: none;
+    text-decoration: underline;
+    text-underline-offset: 0.2em;
   }
 
   footer p {
