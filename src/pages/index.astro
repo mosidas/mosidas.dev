@@ -145,6 +145,12 @@ const ymd = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Tokyo' });
     padding-left: 1.5em;
   }
 
+  .news-body :global(a)::after {
+    /* 1 行目は代替テキストの構文を解釈しないブラウザー向けの退避 */
+    content: '\a0↗';
+    content: '\a0↗' / '(新しいタブで開く)';
+  }
+
   .news-body :global(img) {
     max-width: 100%;
     height: auto;
