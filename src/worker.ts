@@ -1,4 +1,4 @@
-// shortcut: 転送のログ・メトリクスなし, R7(アクセス解析)で計装する
+// shortcut: workers.dev からの転送のログ・メトリクスなし, 転送の件数を知る必要が出たら計装する
 interface Env {
   ASSETS: { fetch(request: Request): Promise<Response> };
   EMAIL: { send(m: { to: string; from: string; replyTo: string; subject: string; text: string }): Promise<unknown> };

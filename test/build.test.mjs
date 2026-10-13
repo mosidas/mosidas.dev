@@ -1,10 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { access, readFile } from 'node:fs/promises';
+import { access, readFile, readdir } from 'node:fs/promises';
 import { projects } from '../src/data/projects.ts';
+import { beaconToken } from '../src/analytics.ts';
 import news from '../src/data/news.json' with { type: 'json' };
 
 const html = await readFile(new URL('../dist/index.html', import.meta.url), 'utf8');
+// token の有無でビルド結果が変わる beacon を除き、それ以外の script の有無を判定する
+const BEACON = /<script defer src="https:\/\/static\.cloudflareinsights\.com\/beacon\.min\.js" data-cf-beacon="[^"]*"><\/script>/g;
+const stripBeacon = (page) => page.replace(BEACON, '');
 
 test('制作物の名前が決めた 6 件と順序まで一致する', () => {
   assert.deepEqual(
@@ -55,7 +59,7 @@ test('dist/index.html がお知らせの見出しと各お知らせの題名・�
 });
 
 test('dist/index.html が script とインラインの style を含まない', () => {
-  assert.ok(!html.includes('<script'));
+  assert.ok(!stripBeacon(html).includes('<script'));
   assert.ok(!html.includes('<style'));
 });
 
@@ -78,7 +82,7 @@ test('問い合わせのページが送信先と 3 項目と Turnstile を持つ
 });
 
 test('問い合わせのページの script は Turnstile の 1 本だけで、インラインの style を含まない', () => {
-  const scripts = contact.match(/<script[^>]*>/g) ?? [];
+  const scripts = stripBeacon(contact).match(/<script[^>]*>/g) ?? [];
   assert.equal(scripts.length, 1);
   assert.match(scripts[0], /src="https:\/\/challenges\.cloudflare\.com\/turnstile\/v0\/api\.js"/);
   assert.ok(!contact.includes('<style'));
@@ -105,16 +109,64 @@ test('Worker が参照する結果ページがすべてビルド成果物にあ�
   for (const name of names) await access(new URL(`../dist/contact/${name}/index.html`, import.meta.url));
 });
 
-test('CSP が Turnstile の読み込みと同一オリジンへの送信だけを許す', async () => {
+test('CSP が Turnstile と Web Analytics の読み込みと送信先だけを許す', async () => {
   const headers = await readFile(new URL('../public/_headers', import.meta.url), 'utf8');
   const csp = headers.match(/Content-Security-Policy: (.*)/)?.[1] ?? '';
   for (const directive of [
     "default-src 'none'",
-    'script-src https://challenges.cloudflare.com;',
+    'script-src https://challenges.cloudflare.com https://static.cloudflareinsights.com;',
+    'connect-src https://cloudflareinsights.com;',
     'frame-src https://challenges.cloudflare.com;',
     "form-action 'self'",
   ]) {
     assert.ok(csp.includes(directive), `CSP にない: ${directive}`);
   }
   assert.ok(!csp.includes("'unsafe-inline'"));
+});
+
+const privacy = await readDist('privacy/index.html');
+
+test('プライバシーポリシーのページが Turnstile と Web Analytics の利用を説明する', () => {
+  assert.match(privacy, /<h1[^>]*>プライバシーポリシー<\/h1>/);
+  for (const word of ['Turnstile', 'Web Analytics', 'Cookie']) {
+    assert.ok(privacy.includes(word), `記述がない: ${word}`);
+  }
+});
+
+test('トップと問い合わせのページがフッターからプライバシーポリシーへリンクする', () => {
+  assert.ok(html.includes('href="/privacy/"'));
+  assert.ok(contact.includes('href="/privacy/"'));
+});
+
+test('プライバシーポリシーのページが script とインラインの style を含まない', () => {
+  assert.ok(!stripBeacon(privacy).includes('<script'));
+  assert.ok(!privacy.includes('<style'));
+});
+
+test('beaconToken が正しい形式の token を返す', () => {
+  assert.equal(beaconToken('0123456789abcdef0123456789abcdef', true), '0123456789abcdef0123456789abcdef');
+});
+
+test('beaconToken が CI の外で token が未設定なら undefined を返す', () => {
+  assert.equal(beaconToken(undefined, false), undefined);
+});
+
+test('beaconToken が CI で token が未設定なら失敗する', () => {
+  assert.throws(() => beaconToken(undefined, true), /PUBLIC_WEB_ANALYTICS_TOKEN が未設定/);
+});
+
+test('beaconToken が形式外の token を CI の内外で拒む', () => {
+  for (const ci of [true, false]) {
+    assert.throws(() => beaconToken('abc"}<script>', ci), (e) => e.message === 'PUBLIC_WEB_ANALYTICS_TOKEN の形式が不正');
+  }
+});
+
+test('全ページが beacon を token の設定時に 1 本、未設定時に 0 本含む', async () => {
+  const expected = process.env.PUBLIC_WEB_ANALYTICS_TOKEN ? 1 : 0;
+  const pages = (await readdir(new URL('../dist/', import.meta.url), { recursive: true })).filter((f) => f.endsWith('index.html'));
+  assert.ok(pages.length >= 8, `ページが足りない: ${pages.length}`);
+  for (const page of pages) {
+    const count = (await readDist(page)).match(BEACON)?.length ?? 0;
+    assert.equal(count, expected, `beacon の本数が違う: ${page}`);
+  }
 });

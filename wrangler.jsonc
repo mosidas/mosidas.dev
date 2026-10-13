@@ -6,7 +6,7 @@
   // workers.dev からの転送は workers.dev が有効であることを前提にする
   "workers_dev": true,
   "routes": [{ "pattern": "mosidas.dev", "custom_domain": true }],
-  // shortcut: アクセス数・エラーのメトリクスなし, R7(アクセス解析)で計装する
+  // shortcut: アクセス数は Web Analytics(JS を実行するクライアントのみ)、エラーは Workers のメトリクス(例外のみ)で見る, 4xx の件数が要るようになったら Worker で計装する
   "assets": {
     "directory": "./dist",
     "binding": "ASSETS",
