@@ -1,6 +1,7 @@
 import { test, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { commitSnapshot, createIssue, redact, main } from '../scripts/build.mjs';
+import { readFile, writeFile } from 'node:fs/promises';
+import { commitSnapshot, createIssue, redact, restoreFromSnapshot, main } from '../scripts/build.mjs';
 
 const realFetch = globalThis.fetch;
 /** @type {{ url: string, method: string, headers: Headers, body: any }[]} */
@@ -30,10 +31,17 @@ const files = [
   { path: 'public/news/images/a.png', content: new Uint8Array([1, 2, 3]) },
 ];
 
-/** @param {{ ref?: number, parentTree?: string, status?: Record<string, number> }} o */
-const github = ({ ref = 200, parentTree = 'old-tree', status = {} } = {}) => (method, path) => {
+const CONTENTS = 'GET /contents/src/data/zenn.json?ref=content-snapshot';
+
+/** @param {{ ref?: number, parentTree?: string, status?: Record<string, number>, zenn?: string }} o zenn を省くとスナップショットに zenn.json が無い(404) */
+const github = ({ ref = 200, parentTree = 'old-tree', status = {}, zenn } = {}) => (method, path) => {
   const key = `${method} ${path}`;
   if (status[key]) return new Response('{}', { status: status[key] });
+  if (key === CONTENTS) {
+    return zenn === undefined
+      ? new Response('{}', { status: 404 })
+      : Response.json({ encoding: 'base64', content: Buffer.from(zenn).toString('base64') });
+  }
   if (key === 'GET /git/ref/heads/content-snapshot') {
     return ref === 200 ? Response.json({ object: { sha: 'parent' } }) : new Response('{}', { status: ref });
   }
@@ -127,8 +135,9 @@ test('WORKERS_CI が無ければ GitHub を呼ばずに fetch と build を実�
   const { ran, run } = okRun();
   assert.equal(await main({ SNAPSHOT_GITHUB_TOKEN: 'tok', WORKERS_CI_BRANCH: 'main' }, run), 0);
   assert.equal(calls.length, 0);
-  assert.equal(ran.length, 2);
-  assert.ok(ran[1].at(-1) === 'build');
+  assert.equal(ran.length, 3);
+  assert.ok(ran[1][0].endsWith('fetch-zenn.mjs'));
+  assert.ok(ran[2].at(-1) === 'build');
 });
 
 test('main 以外のブランチのプレビューでは GitHub を呼ばない', async () => {
@@ -142,7 +151,7 @@ test('子プロセスの env から SNAPSHOT_GITHUB_TOKEN を除く', async () =
   /** @type {NodeJS.ProcessEnv[]} */
   const envs = [];
   await main({ SNAPSHOT_GITHUB_TOKEN: 'tok', MICROCMS_API_KEY: 'k' }, (_args, env) => (envs.push(env), { status: 0, signal: null, stderr: '', error: undefined }));
-  assert.equal(envs.length, 2);
+  assert.equal(envs.length, 3);
   for (const env of envs) {
     assert.equal(env.SNAPSHOT_GITHUB_TOKEN, undefined);
     assert.equal(env.MICROCMS_API_KEY, 'k');
@@ -173,4 +182,75 @@ test('Issue の作成に失敗しても終了コード 1 で終わる', async ()
   respond = github({ status: { 'POST /issues': 403 } });
   const run = () => ({ status: 2, signal: null, stderr: '', error: undefined });
   assert.equal(await main({ WORKERS_CI: '1', WORKERS_CI_BRANCH: 'main', SNAPSHOT_GITHUB_TOKEN: 'tok' }, run), 1);
+});
+
+const ZENN_URL = new URL('../src/data/zenn.json', import.meta.url);
+const PROD = { WORKERS_CI: '1', WORKERS_CI_BRANCH: 'main', SNAPSHOT_GITHUB_TOKEN: 'tok' };
+
+/** checkout の zenn.json を書き換えるテストのあとで元に戻す。 @param {() => Promise<void>} fn */
+const keepZenn = async (fn) => {
+  const original = await readFile(ZENN_URL);
+  try {
+    await fn();
+  } finally {
+    await writeFile(ZENN_URL, original);
+  }
+};
+
+test('restore はスナップショットの zenn.json を checkout に書く', () =>
+  keepZenn(async () => {
+    const zenn = '[{"title":"t","url":"https://zenn.dev/mosida/articles/a","publishedAt":"2026-10-01T00:00:00.000Z"}]\n';
+    respond = github({ zenn });
+    assert.equal(await restoreFromSnapshot('tok', 'src/data/zenn.json'), true);
+    assert.equal(await readFile(ZENN_URL, 'utf8'), zenn);
+    assert.deepEqual(keys(), [CONTENTS]);
+  }));
+
+test('restore はスナップショットに無ければ checkout を書き換えない', async () => {
+  respond = github();
+  const before = await readFile(ZENN_URL, 'utf8');
+  assert.equal(await restoreFromSnapshot('tok', 'src/data/zenn.json'), false);
+  assert.equal(await readFile(ZENN_URL, 'utf8'), before);
+});
+
+test('restore は 500 なら status を含めて失敗する', async () => {
+  respond = github({ status: { [CONTENTS]: 500 } });
+  await assert.rejects(restoreFromSnapshot('tok', 'src/data/zenn.json'), { status: 500, type: 'github_status_500' });
+});
+
+test('restore は内容が JSON の配列でなければ書かずに失敗する', async () => {
+  const before = await readFile(ZENN_URL, 'utf8');
+  for (const zenn of ['{"a":1}', 'not json']) {
+    respond = github({ zenn });
+    await assert.rejects(restoreFromSnapshot('tok', 'src/data/zenn.json'), { stage: 'restore', type: 'invalid_snapshot' });
+  }
+  assert.equal(await readFile(ZENN_URL, 'utf8'), before);
+});
+
+test('本番では fetch・restore・fetch-zenn・snapshot・build の順に進め、tree に zenn.json を含める', async () => {
+  respond = github();
+  const { ran, run } = okRun();
+  assert.equal(await main(PROD, run), 0);
+  assert.equal(ran.length, 3);
+  assert.equal(keys()[0], CONTENTS);
+  const trees = calls.find((c) => c.url.endsWith('/git/trees'));
+  assert.ok(trees?.body.tree.some((t) => t.path === 'src/data/zenn.json'));
+});
+
+test('本番で contents が 500 なら fetch-zenn と build を実行せず、Issue を作って失敗する', async () => {
+  respond = github({ status: { [CONTENTS]: 500 } });
+  const { ran, run } = okRun();
+  assert.equal(await main(PROD, run), 1);
+  assert.equal(ran.length, 1);
+  assert.deepEqual(keys(), [CONTENTS, 'POST /issues']);
+  assert.equal(calls[1].body.title, 'ビルドに失敗した(restore)');
+  assert.ok(calls[1].body.body.includes('error.type: github_status_500'));
+});
+
+test('fetch-zenn が終了コード 1 で終わったら build を実行せず失敗する', async () => {
+  /** @type {string[][]} */
+  const ran = [];
+  const run = (args) => (ran.push(args), { status: args[0].endsWith('fetch-zenn.mjs') ? 1 : 0, signal: null, stderr: '', error: undefined });
+  assert.equal(await main({}, run), 1);
+  assert.equal(ran.length, 2);
 });
