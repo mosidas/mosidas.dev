@@ -255,13 +255,23 @@ test('すべてのページが外部フォント・インラインの script・s
 });
 
 test('フォントを自前で配信し、CSS がそれを参照する', async () => {
-  for (const file of ['mplus1code-latin.woff2', 'mplus1code-latin-ext.woff2', 'OFL.txt']) {
-    await access(new URL(`fonts/${file}`, DIST));
+  const files = await readdir(new URL('fonts/', DIST));
+  assert.equal(files.filter((f) => f.endsWith('.woff2')).length, 238);
+  for (const file of ['fonts.css', 'OFL.txt']) assert.ok(files.includes(file), `ない: ${file}`);
+  const css = await readDist('fonts/fonts.css');
+  assert.equal(css.match(/@font-face/g)?.length, 238);
+  const refs = [...css.matchAll(/url\('\/fonts\/([^']+)'\)/g)].map((m) => m[1]);
+  assert.equal(refs.length, 238);
+  for (const ref of refs) assert.ok(files.includes(ref), `参照先がない: ${ref}`);
+  for (const family of ["font-family: 'M PLUS 1';", "font-family: 'M PLUS 1 Code';"]) {
+    assert.ok(css.includes(family), `書体がない: ${family}`);
   }
-  const cssFiles = (await readdir(new URL('_astro/', DIST))).filter((f) => f.endsWith('.css'));
-  const css = (await Promise.all(cssFiles.map((f) => readDist(`_astro/${f}`)))).join('');
-  assert.ok(css.includes('/fonts/mplus1code-latin.woff2'));
-  assert.ok(css.includes('/fonts/mplus1code-latin-ext.woff2'));
+});
+
+test('すべてのページがフォントの CSS を読み込む', async () => {
+  for (const path of await allPages()) {
+    assert.ok((await readDist(path)).includes('<link rel="stylesheet" href="/fonts/fonts.css"'), `読み込まない: ${path}`);
+  }
 });
 
 test('dist/works/index.html が 6 件の詳細へのリンクを projects の順で持ち、日付と短い説明を表示する', async () => {
