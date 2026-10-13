@@ -17,7 +17,7 @@ const { project, index, prev, next } = Astro.props as InferGetStaticPropsType<ty
 const pad = (n: number) => String(n).padStart(2, '0');
 ---
 
-<Base title={`${project.name} | mosidas`} description={project.description}>
+<Base title={`${project.name} | mosida`} description={project.description}>
   <div class="crumb">
     <a href="/works/">← works/</a>
     <span>{pad(index + 1)} / {pad(projects.length)}</span>

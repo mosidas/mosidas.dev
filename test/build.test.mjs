@@ -64,11 +64,11 @@ test('日付の整形が JST の YYYY-MM-DD を返す', () => {
 });
 
 test('dist/index.html が whoami・about.txt・stack/・news.log の 4 ブロックと、GitHub・Zenn・/works/・/articles/・/contact/・/privacy/ へのリンクを持つ', () => {
-  assert.ok(html.includes('<title>mosidas</title>'));
+  assert.ok(html.includes('<title>mosida</title>'));
   for (const command of ['whoami', 'cat about.txt', 'ls stack/', 'tail news.log']) {
     assert.ok(html.includes(`</span> ${command}</p>`), `プロンプトがない: ${command}`);
   }
-  assert.match(html, /<h1[^>]*>mosidas<\/h1>/);
+  assert.match(html, /<h1[^>]*>mosida<\/h1>/);
   assert.match(html, /<p[^>]*class="about"[^>]*>ソフトウェアエンジニア。/);
   for (const dir of ['swift/', 'go/', 'csharp/', 'typescript/']) {
     assert.match(html, new RegExp(`<li[^>]*>${dir}</li>`), `stack がない: ${dir}`);
@@ -239,6 +239,13 @@ test('すべてのページが GitHub・Zenn・プライバシーポリシーへ
     for (const href of ['https://github.com/mosidas', 'https://zenn.dev/mosida', '/privacy/']) {
       assert.ok(page.includes(`href="${href}"`), `リンクがない: ${path} の ${href}`);
     }
+  }
+});
+
+test('dist の HTML に名前としての mosidas が残っていない', async () => {
+  for (const path of await allPages()) {
+    const page = (await readDist(path)).replace(/mosidas\.dev|github\.com\/mosidas|mosidas-dev/g, '');
+    assert.ok(!page.includes('mosidas'), `名前が残る: ${path}`);
   }
 });
 

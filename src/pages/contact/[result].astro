@@ -23,7 +23,7 @@ export const getStaticPaths = (() => {
 const { heading, body } = Astro.props as InferGetStaticPropsType<typeof getStaticPaths>;
 ---
 
-<Base title={`${heading} | mosidas`} description="問い合わせの送信結果。" noindex>
+<Base title={`${heading} | mosida`} description="問い合わせの送信結果。" noindex>
   <h1>{heading}</h1>
   {body.map((text) => <p>{text}</p>)}
   <p class="back"><a href="/contact/">問い合わせのページへ戻る</a></p>
