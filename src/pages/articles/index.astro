@@ -1,0 +1,43 @@
+---
+import zennJson from '../../data/zenn.json';
+import Base from '../../layouts/Base.astro';
+import Terminal from '../../components/Terminal.astro';
+
+// scripts/fetch-zenn.mjs でも検証済みだが、表示側でも Zenn 以外へのリンクを出さない
+const articles = (zennJson as { title: string; url: string; date: string }[]).filter((a) => a.url.startsWith('https://zenn.dev/'));
+// sv-SE は YYYY-MM-DD の形で返す
+const ymd = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Tokyo' });
+---
+
+<Base title="記事 | mosidas" description="mosidas が Zenn に書いた記事の一覧。">
+  <h1 class="visually-hidden">記事</h1>
+  <Terminal>
+    <p class="prompt-line" aria-hidden="true"><span class="prompt">❯</span> tail articles.log</p>
+    {
+      articles.length > 0 ? (
+        <ol class="log">
+          {articles.map((a) => (
+            <li>
+              <a class="log-row" href={a.url}>
+                <time datetime={a.date}>{ymd.format(new Date(a.date))}</time>
+                <span class="tag">[zenn]</span>
+                <span class="text">{a.title}</span>
+              </a>
+            </li>
+          ))}
+        </ol>
+      ) : (
+        <p class="empty">記事はまだない。</p>
+      )
+    }
+    <p class="prompt-line cursor-line" aria-hidden="true"><span class="prompt">❯</span> <span class="cursor"></span></p>
+  </Terminal>
+</Base>
+
+<style>
+  .empty {
+    margin: 0;
+    font-family: var(--font-sans);
+    color: var(--term-sub);
+  }
+</style>

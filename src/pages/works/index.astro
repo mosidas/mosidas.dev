@@ -1,0 +1,26 @@
+---
+import Base from '../../layouts/Base.astro';
+import Terminal from '../../components/Terminal.astro';
+import { projects } from '../../data/projects';
+---
+
+<Base title="制作物 | mosidas" description="mosidas が個人で作ったソフトウェアの一覧。">
+  <h1 class="visually-hidden">制作物</h1>
+  <Terminal>
+    <p class="prompt-line" aria-hidden="true"><span class="prompt">❯</span> tail works.log</p>
+    <ol class="log">
+      {
+        projects.map((p) => (
+          <li>
+            <a class="log-row" href={`/works/${p.name}/`}>
+              <time datetime={p.date}>{p.date}</time>
+              <span class="tag">[{p.name}]</span>
+              <span class="text">{p.short}</span>
+            </a>
+          </li>
+        ))
+      }
+    </ol>
+    <p class="prompt-line cursor-line" aria-hidden="true"><span class="prompt">❯</span> <span class="cursor"></span></p>
+  </Terminal>
+</Base>

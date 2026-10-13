@@ -10,6 +10,8 @@ const html = await readFile(new URL('../dist/index.html', import.meta.url), 'utf
 // token の有無でビルド結果が変わる beacon を除き、それ以外の script の有無を判定する
 const BEACON = /<script defer src="https:\/\/static\.cloudflareinsights\.com\/beacon\.min\.js" data-cf-beacon="[^"]*"><\/script>/g;
 const stripBeacon = (page) => page.replace(BEACON, '');
+// 表示の日付の期待値をページと同じ式で作る。sv-SE は YYYY-MM-DD の形で返す
+const ymd = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Tokyo' });
 
 // Astro は html-escaper と同じ 5 文字を置換して描画する
 const escapeHtml = (s) =>
@@ -18,30 +20,29 @@ const escapeHtml = (s) =>
 test('制作物の名前が決めた 6 件と順序まで一致する', () => {
   assert.deepEqual(
     projects.map((p) => p.name),
-    ['launchpad-lite', 'dev-skills', 'recognizer', 'lazy-finder', 'nullops', 'rename'],
+    ['launchpad-lite', 'nullops', 'dev-skills', 'recognizer', 'lazy-finder', 'rename'],
   );
+});
+
+test('name が英小文字とハイフンだけで、date が実在する YYYY-MM-DD で、short が空でない', () => {
+  for (const { name, date, short } of projects) {
+    assert.match(name, /^[a-z]+(-[a-z]+)*$/);
+    assert.match(date, /^\d{4}-\d{2}-\d{2}$/);
+    // Date.parse は 2026-02-30 を繰り上げて受け付けるため、往復して一致を見る
+    assert.equal(new Date(date).toISOString().slice(0, 10), date, `実在しない日付: ${name} の ${date}`);
+    assert.ok(short.trim().length > 0, `short が空: ${name}`);
+  }
+});
+
+test('制作物が date の新しい順に並ぶ', () => {
+  for (let i = 1; i < projects.length; i++) {
+    assert.ok(projects[i - 1].date >= projects[i].date, `順序が違う: ${projects[i].name}`);
+  }
 });
 
 test('すべての url が mosidas の GitHub リポジトリを指す', () => {
   for (const { url } of projects) {
     assert.match(url, /^https:\/\/github\.com\/mosidas\/[A-Za-z0-9._-]+$/);
-  }
-});
-
-test('dist/index.html が各制作物の名前とリンクを含む', () => {
-  for (const { name, url } of projects) {
-    assert.ok(html.includes(name), `名前がない: ${name}`);
-    assert.ok(html.includes(`href="${url}"`), `リンクがない: ${url}`);
-  }
-});
-
-test('各制作物が 1 つ以上の使用技術を持ち、dist/index.html に表示される', () => {
-  for (const { name, stack } of projects) {
-    assert.ok(stack.length > 0, `使用技術がない: ${name}`);
-    for (const tech of stack) {
-      const escaped = tech.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      assert.match(html, new RegExp(`<li[^>]*>${escaped}</li>`), `使用技術がない: ${name} の ${tech}`);
-    }
   }
 });
 
@@ -53,7 +54,37 @@ test('dist/index.html がお知らせの見出しと各お知らせの題名・�
   for (const { title, publishedAt } of news) {
     assert.ok(html.includes(`>${escapeHtml(title)}</h3>`), `題名がない: ${title}`);
     assert.ok(html.includes(`datetime="${publishedAt}"`), `日付がない: ${publishedAt}`);
+    assert.ok(html.includes(`>${ymd.format(new Date(publishedAt))}</time>`), `表示の日付がない: ${publishedAt}`);
   }
+});
+
+test('日付の整形が JST の YYYY-MM-DD を返す', () => {
+  // CI では news.json・zenn.json が空でループが回らないため、整形の式そのものを固定する
+  assert.equal(ymd.format(new Date('2026-01-01T15:00:00.000Z')), '2026-01-02');
+});
+
+test('dist/index.html が whoami・about.txt・stack/・news.log の 4 ブロックと、GitHub・Zenn・/works/・/articles/・/contact/・/privacy/ へのリンクを持つ', () => {
+  assert.ok(html.includes('<title>mosidas</title>'));
+  for (const command of ['whoami', 'cat about.txt', 'ls stack/', 'tail news.log']) {
+    assert.ok(html.includes(`</span> ${command}</p>`), `プロンプトがない: ${command}`);
+  }
+  assert.match(html, /<h1[^>]*>mosidas<\/h1>/);
+  assert.match(html, /<p[^>]*class="about"[^>]*>ソフトウェアエンジニア。/);
+  for (const dir of ['swift/', 'go/', 'csharp/', 'typescript/']) {
+    assert.match(html, new RegExp(`<li[^>]*>${dir}</li>`), `stack がない: ${dir}`);
+  }
+  for (const href of ['https://github.com/mosidas', 'https://zenn.dev/mosida', '/works/', '/articles/', '/contact/', '/privacy/']) {
+    assert.ok(html.includes(`href="${href}"`), `リンクがない: ${href}`);
+  }
+});
+
+test('dist/index.html が制作物と記事の一覧を含まない', () => {
+  for (const { name, url } of projects) {
+    assert.ok(!html.includes(`href="${url}"`), `制作物のリンクがある: ${url}`);
+    assert.ok(!html.includes(`/works/${name}/`), `制作物の詳細へのリンクがある: ${name}`);
+  }
+  for (const { url } of zenn) assert.ok(!html.includes(`href="${escapeHtml(url)}"`), `記事のリンクがある: ${url}`);
+  for (const word of ['works.log', 'articles.log']) assert.ok(!html.includes(word), `一覧がある: ${word}`);
 });
 
 test('zenn.json が 10 件以内で、日付の降順に並び、url がすべて Zenn を指す', () => {
@@ -62,23 +93,6 @@ test('zenn.json が 10 件以内で、日付の降順に並び、url がすべ�
     assert.ok(Date.parse(zenn[i - 1].date) >= Date.parse(zenn[i].date), `降順でない: ${zenn[i].url}`);
   }
   for (const { url } of zenn) assert.ok(url.startsWith('https://zenn.dev/'), `Zenn でない: ${url}`);
-});
-
-test('dist/index.html が記事の見出しと各記事のリンク・題名・日付を zenn.json の順で含む', () => {
-  assert.match(html, /<h2[^>]*id="articles-heading"[^>]*>記事<\/h2>/);
-  if (zenn.length === 0) {
-    assert.ok(html.includes('記事はまだない。'));
-  }
-  let last = -1;
-  for (const { title, url, date } of zenn) {
-    const link = `href="${escapeHtml(url)}"`;
-    assert.ok(html.includes(link), `リンクがない: ${url}`);
-    assert.ok(html.includes(`>${escapeHtml(title)}</a></h3>`), `題名がない: ${title}`);
-    assert.ok(html.includes(`datetime="${date}"`), `日付がない: ${date}`);
-    const index = html.indexOf(link);
-    assert.ok(index > last, `順序が違う: ${url}`);
-    last = index;
-  }
 });
 
 test('dist/index.html が script とインラインの style を含まない', () => {
@@ -102,6 +116,12 @@ test('問い合わせのページが送信先と 3 項目と Turnstile を持つ
     assert.match(contact, new RegExp(`<label[^>]*for="${name}"`), `ラベルがない: ${name}`);
   }
   assert.match(contact, /data-sitekey="[^"]+"/);
+});
+
+test('問い合わせのページが send の送信ボタンを持つ', () => {
+  const button = contact.match(/<button[^>]*type="submit"[^>]*>([\s\S]*?)<\/button>/);
+  assert.ok(button, '送信ボタンがない');
+  assert.ok(button[1].includes('send'), `送信ボタンの文言が違う: ${button[1]}`);
 });
 
 test('問い合わせのページの script は Turnstile の 1 本だけで、インラインの style を含まない', () => {
@@ -141,6 +161,7 @@ test('CSP が Turnstile と Web Analytics の読み込みと送信先だけを�
     'connect-src https://cloudflareinsights.com;',
     'frame-src https://challenges.cloudflare.com;',
     "form-action 'self'",
+    "font-src 'self';",
   ]) {
     assert.ok(csp.includes(directive), `CSP にない: ${directive}`);
   }
@@ -191,5 +212,108 @@ test('全ページが beacon を token の設定時に 1 本、未設定時に 0
   for (const page of pages) {
     const count = (await readDist(page)).match(BEACON)?.length ?? 0;
     assert.equal(count, expected, `beacon の本数が違う: ${page}`);
+  }
+});
+
+const DIST = new URL('../dist/', import.meta.url);
+const allPages = async () => (await readdir(DIST, { recursive: true })).filter((f) => f.endsWith('index.html'));
+
+test('すべてのページのナビが 4 件のリンクを持ち、現在ページだけに aria-current を付ける', async () => {
+  const sections = { '': '/', contact: '/contact/', works: '/works/', articles: '/articles/' };
+  for (const path of await allPages()) {
+    const page = await readDist(path);
+    const nav = page.match(/<nav[^>]*>[\s\S]*?<\/nav>/)?.[0] ?? '';
+    const hrefs = [...nav.matchAll(/href="([^"]*)"/g)].map((m) => m[1]);
+    assert.deepEqual(hrefs, ['/', '/works/', '/articles/', '/contact/'], `ナビが違う: ${path}`);
+    const top = path.includes('/') ? path.split('/')[0] : '';
+    const expected = sections[top];
+    const current = page.match(/<a[^>]*aria-current="page"[^>]*>/g) ?? [];
+    assert.equal(current.length, expected ? 1 : 0, `aria-current の数が違う: ${path}`);
+    if (expected) assert.ok(current[0].includes(`href="${expected}"`), `aria-current の位置が違う: ${path}`);
+  }
+});
+
+test('すべてのページが GitHub・Zenn・プライバシーポリシーへリンクする', async () => {
+  for (const path of await allPages()) {
+    const page = await readDist(path);
+    for (const href of ['https://github.com/mosidas', 'https://zenn.dev/mosida', '/privacy/']) {
+      assert.ok(page.includes(`href="${href}"`), `リンクがない: ${path} の ${href}`);
+    }
+  }
+});
+
+test('すべてのページが外部フォント・インラインの script・style を含まない', async () => {
+  for (const path of await allPages()) {
+    const page = await readDist(path);
+    for (const word of ['fonts.googleapis.com', 'gstatic.com', '<style', ' style="']) {
+      assert.ok(!page.includes(word), `含む: ${path} の ${word}`);
+    }
+    for (const script of page.match(/<script[^>]*>/g) ?? []) {
+      assert.ok(script.includes('src="https://'), `インラインの script: ${path}`);
+    }
+  }
+});
+
+test('フォントを自前で配信し、CSS がそれを参照する', async () => {
+  for (const file of ['mplus1code-latin.woff2', 'mplus1code-latin-ext.woff2', 'OFL.txt']) {
+    await access(new URL(`fonts/${file}`, DIST));
+  }
+  const cssFiles = (await readdir(new URL('_astro/', DIST))).filter((f) => f.endsWith('.css'));
+  const css = (await Promise.all(cssFiles.map((f) => readDist(`_astro/${f}`)))).join('');
+  assert.ok(css.includes('/fonts/mplus1code-latin.woff2'));
+  assert.ok(css.includes('/fonts/mplus1code-latin-ext.woff2'));
+});
+
+test('dist/works/index.html が 6 件の詳細へのリンクを projects の順で持ち、日付と短い説明を表示する', async () => {
+  const page = await readDist('works/index.html');
+  let last = -1;
+  for (const { name, date, short } of projects) {
+    const link = `href="/works/${name}/"`;
+    assert.ok(page.includes(link), `リンクがない: ${name}`);
+    assert.ok(page.includes(`datetime="${date}">${date}</time>`), `日付がない: ${name}`);
+    assert.ok(page.includes(`>${escapeHtml(short)}</span>`), `短い説明がない: ${name}`);
+    const index = page.indexOf(link);
+    assert.ok(index > last, `順序が違う: ${name}`);
+    last = index;
+  }
+});
+
+test('各 dist/works/<name>/index.html が h1・GitHub へのリンク・前後の制作物へのリンク・使用技術・番号を持ち、img を含まない', async () => {
+  const n = projects.length;
+  for (const [i, { name, url, stack }] of projects.entries()) {
+    const page = await readDist(`works/${name}/index.html`);
+    assert.match(page, new RegExp(`<h1[^>]*>${name}</h1>`), `h1 がない: ${name}`);
+    assert.ok(page.includes(`href="${url}"`), `GitHub へのリンクがない: ${name}`);
+    for (const [label, other] of [['前', projects[(i - 1 + n) % n]], ['次', projects[(i + 1) % n]]]) {
+      assert.ok(
+        page.includes(`href="/works/${other.name}/" aria-label="${label}の制作物: ${other.name}"`),
+        `${label}のリンクがない: ${name} から ${other.name}`,
+      );
+    }
+    assert.ok(page.includes(`${String(i + 1).padStart(2, '0')} / 06`), `番号がない: ${name}`);
+    assert.ok(stack.length > 0, `使用技術がない: ${name}`);
+    for (const tech of stack) {
+      const escaped = tech.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      assert.match(page, new RegExp(`<li[^>]*>${escaped}</li>`), `使用技術がない: ${name} の ${tech}`);
+    }
+    assert.ok(!page.includes('<img'), `img がある: ${name}`);
+  }
+});
+
+test('dist/articles/index.html が各記事のリンク・題名・日付を zenn.json の順で含む', async () => {
+  const page = await readDist('articles/index.html');
+  if (zenn.length === 0) {
+    assert.ok(page.includes('記事はまだない。'));
+  }
+  let last = -1;
+  for (const { title, url, date } of zenn) {
+    const link = `href="${escapeHtml(url)}"`;
+    assert.ok(page.includes(link), `リンクがない: ${url}`);
+    assert.ok(page.includes(`>${escapeHtml(title)}</span>`), `題名がない: ${title}`);
+    assert.ok(page.includes(`datetime="${date}"`), `日付がない: ${date}`);
+    assert.ok(page.includes(`>${ymd.format(new Date(date))}</time>`), `表示の日付がない: ${date}`);
+    const index = page.indexOf(link);
+    assert.ok(index > last, `順序が違う: ${url}`);
+    last = index;
   }
 });

@@ -25,21 +25,21 @@ if (!siteKey) {
   <h1>問い合わせ</h1>
   <p class="lead">入力内容はサーバーに保存せず、本人宛のメールとして送る。</p>
   <form method="post" action="/api/contact">
-    <div class="field">
-      <label for="name">名前</label>
+    <div class="field half">
+      <label for="name"><span aria-hidden="true">$</span> name</label>
       <input id="name" name="name" type="text" autocomplete="name" maxlength="100" required />
     </div>
-    <div class="field">
-      <label for="email">メールアドレス</label>
+    <div class="field half">
+      <label for="email"><span aria-hidden="true">$</span> email</label>
       <input id="email" name="email" type="email" autocomplete="email" maxlength="254" required />
     </div>
     <div class="field">
-      <label for="message">本文</label>
+      <label for="message"><span aria-hidden="true">$</span> message</label>
       <textarea id="message" name="message" rows="8" maxlength="5000" required></textarea>
     </div>
     <div class="cf-turnstile" data-sitekey={siteKey} data-language="ja"></div>
     <noscript><p class="note">送信には JavaScript が必要である。ブラウザーで JavaScript を有効にしてほしい。</p></noscript>
-    <button type="submit">送信する</button>
+    <button type="submit"><span aria-hidden="true">$</span> send <span aria-hidden="true">↵</span></button>
   </form>
   <p class="back"><a href="/">トップページへ戻る</a></p>
   <script is:inline src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
@@ -47,13 +47,13 @@ if (!siteKey) {
 
 <style>
   .lead {
-    margin: 0 0 32px;
     color: var(--muted);
   }
 
   form {
     display: grid;
-    gap: 24px;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
   }
 
   .field {
@@ -62,7 +62,8 @@ if (!siteKey) {
   }
 
   label {
-    font-weight: 600;
+    font: 0.75rem/1.5 var(--font-mono);
+    color: var(--faint);
   }
 
   input,
@@ -71,38 +72,37 @@ if (!siteKey) {
     width: 100%;
     min-height: 44px;
     padding: 8px 12px;
-    /* 入力欄の境界は背景に対して 3:1 以上が要るため、--rule でなく --muted を使う */
-    border: 1px solid var(--muted);
-    border-radius: 4px;
-    font: inherit;
+    /* 入力欄の境界は背景に対して 3:1 以上が要るため --faint を使う。16px は iOS の自動拡大を避ける */
+    border: 1px solid var(--faint);
+    border-radius: 0;
+    font: 1rem var(--font-sans);
     color: var(--text);
-    background: var(--bg);
+    background: var(--panel);
+  }
+
+  :is(input, textarea):focus {
+    border-color: var(--text);
   }
 
   textarea {
+    line-height: 1.7;
     resize: vertical;
   }
 
   button {
-    justify-self: start;
+    justify-self: end;
     min-height: 44px;
-    padding: 8px 24px;
+    padding: 8px 16px;
     border: 0;
-    border-radius: 4px;
-    font: inherit;
-    font-weight: 600;
-    color: var(--bg);
-    background: var(--link);
+    border-radius: 0;
+    font: 0.75rem/1.5 var(--font-mono);
+    color: var(--panel);
+    background: var(--text);
     cursor: pointer;
   }
 
   button:hover {
     text-decoration: underline;
-  }
-
-  :is(input, textarea, button):focus-visible {
-    outline: 2px solid var(--link);
-    outline-offset: 2px;
   }
 
   .note {
@@ -112,5 +112,25 @@ if (!siteKey) {
 
   .back {
     margin: 48px 0 0;
+  }
+
+  /* Turnstile の iframe は幅 300px 固定のため、枠と padding は幅に余裕がある 48rem 以上だけに付ける */
+  @media (min-width: 48rem) {
+    form {
+      max-width: 35rem;
+      padding: 24px;
+      border: 1px solid var(--line);
+      background: var(--card);
+    }
+  }
+
+  @media (min-width: 64rem) {
+    form {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    form > :not(.half) {
+      grid-column: 1 / -1;
+    }
   }
 </style>
