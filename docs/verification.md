@@ -528,7 +528,7 @@ Web Analytics は Cookie を使わない。
 - JS を実行しないクライアントとボットは数えない。
 - 4xx の件数と、workers.dev からの転送の件数は出ない。Worker の例外は Workers のメトリクスで見る。
 - token はページの HTML に出る公開値で、シークレットではない。PRD に従い、ビルド変数に置く。
-- ローカルの `.env` に token を置いても `npm test` は通る。テストが token の有無で beacon の本数の期待値を切り替えるためである。
+- token をシェルの環境変数で渡したとき(`PUBLIC_WEB_ANALYTICS_TOKEN=… npm test`)も `npm test` は通る。テストが token の有無で beacon の本数の期待値を切り替えるためである。`.env` に書くと、ビルドは beacon を入れるが `node --test` は `.env` を読まないため、期待値が 0 本になりテストが失敗する。
 
 出典:
 
