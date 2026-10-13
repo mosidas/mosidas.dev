@@ -464,3 +464,72 @@ Worker の Logs はダッシュボードで読んだ。wrangler の OAuth トー
 | 「バックアップと復元」の「ビルドのたびにコンテンツと画像も GitHub に保存する」 | 8.1 の `content-snapshot` へのコミットと、8.4 の復元の手順 |
 | 「障害時の動作」の「保守の担当者へ通知が届く」 | 8.1 の失敗時の Issue |
 | Cloudflare の費用の「Cron Triggers 2 件(ビルドの起動・アクセストークンの更新)」 | 本節で使うのはビルドの起動の 1 件である |
+
+## 10. アクセス解析(Cloudflare Web Analytics)
+
+### 10.1 方式
+
+アクセス解析には Cloudflare Web Analytics を使う。
+計測のスクリプト(beacon)は、手動のスニペットとして `src/layouts/Base.astro` で全ページに入れる(コミット `e925ce8`・`3e23d1f`)。
+ダッシュボードの自動セットアップ(JS の自動注入)は見送った。
+自動注入が Worker(`run_worker_first`)の応答に反映されるかを確かめられず、入ったかをリポジトリのテストで確かめられないためである。
+手動のスニペットなら、beacon の有無を `dist` のテストで確かめられ、Cloudflare 側の設定に左右されない。
+
+beacon の token は、ビルド変数 `PUBLIC_WEB_ANALYTICS_TOKEN` から読む。
+未設定のときの動作は次のとおりである。
+
+| ビルドの環境 | 未設定のときの動作 |
+| :-- | :-- |
+| `WORKERS_CI` あり(Workers Builds) | 「PUBLIC_WEB_ANALYTICS_TOKEN が未設定」でビルドが失敗する。前回の配信が続き、`build.mjs` が Issue「ビルドに失敗した(build)」を作る |
+| `WORKERS_CI` なし(ローカル) | warn のログを 1 行出し、beacon を出力しない |
+
+token は `src/analytics.ts` の `beaconToken` で `/^[\w-]{1,64}$/` に一致するかを検証し、一致しなければビルドを失敗させる。
+エラーのメッセージには token の値を出さない。
+
+CSP(`public/_headers`)には次の 2 つを追加した。
+
+- `script-src` に `https://static.cloudflareinsights.com`(beacon の読み込み元)
+- `connect-src` に `https://cloudflareinsights.com`(計測の送信先)
+
+Web Analytics は Cookie を使わない。
+公式の説明は "does not use any client-side state, such as cookies or localStorage" である。
+
+プライバシーポリシーのページ `/privacy/` を追加し、Turnstile と Web Analytics の利用を記載した(コミット `8c78407`)。
+全ページのフッターから `/privacy/` へリンクする。
+
+見送った案と理由は次のとおりである。
+
+| 案 | 見送った理由 |
+| :-- | :-- |
+| ゾーンの自動セットアップ(JS の自動注入) | Worker の応答に反映されるかを確かめられず、テストで確かめられない |
+| Worker のログと Analytics Engine で数える | 計装と集計を自前で持つことになる。ページビューと参照元は Web Analytics で足りる |
+| beacon に SRI(`integrity`)を付ける | `beacon.min.js` の版が固定されず、内容が変わると読み込めなくなる |
+
+### 10.2 手順
+
+次の手順はユーザーがダッシュボードで行う。
+
+1. Analytics & Logs > Web Analytics で、サイト `mosidas.dev` を追加する。自動セットアップ(JS の自動注入)は有効にせず、手動のスニペットを選ぶ。二重の計測と CSP 違反を防ぐためである。
+2. 表示されたスニペットの token を、Worker `mosidas-dev` の Settings > Build > Variables and secrets に、ビルド変数 `PUBLIC_WEB_ANALYTICS_TOKEN` として登録する。未登録だと `main` のビルドが「PUBLIC_WEB_ANALYTICS_TOKEN が未設定」で失敗し、前回の配信が続く。
+3. 本 PR(PR #<番号>)をマージする。
+4. `https://mosidas.dev/` をブラウザーで開く。コンソールに CSP 違反が出ないこと、Network に `cloudflareinsights.com/cdn-cgi/rum` への送信が出ることを確かめる。
+5. ダッシュボードの Web Analytics で、ページビューと参照元が表示されることを確かめる。
+6. `https://mosidas.dev/privacy/` を開き、Turnstile と Web Analytics の記載を確かめる。
+
+### 10.3 確認
+
+| 項目 | 確かめ方 | 結果 |
+| :-- | :-- | :-- |
+| AC1: トップページを開いた後、ダッシュボードにページビューが記録される | 10.2 の 4.・5. | (マージ後に記入) |
+| AC2: プライバシーポリシーのページに Turnstile と Web Analytics の利用が記載されている | `dist/privacy/index.html` を読むテストと、10.2 の 6. | ローカルのビルドで確認した(`test/build.test.mjs` の「プライバシーポリシーのページが Turnstile と Web Analytics の利用を説明する」) |
+
+### 10.4 注意点
+
+- JS を実行しないクライアントとボットは数えない。
+- 4xx の件数と、workers.dev からの転送の件数は出ない。Worker の例外は Workers のメトリクスで見る。
+- token はページの HTML に出る公開値で、シークレットではない。PRD に従い、ビルド変数に置く。
+- ローカルの `.env` に token を置いても `npm test` は通る。テストが token の有無で beacon の本数の期待値を切り替えるためである。
+
+出典:
+
+- [Cloudflare Web Analytics](https://www.cloudflare.com/web-analytics/)
