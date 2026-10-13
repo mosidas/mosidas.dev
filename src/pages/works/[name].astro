@@ -1,0 +1,189 @@
+---
+import type { GetStaticPaths, InferGetStaticPropsType } from 'astro';
+import Base from '../../layouts/Base.astro';
+import Terminal from '../../components/Terminal.astro';
+import { projects } from '../../data/projects';
+
+export const getStaticPaths = (() => {
+  const n = projects.length;
+  // 前後は循環させる。最初の前は最後、最後の次は最初
+  return projects.map((project, i) => ({
+    params: { name: project.name },
+    props: { project, index: i, prev: projects[(i - 1 + n) % n], next: projects[(i + 1) % n] },
+  }));
+}) satisfies GetStaticPaths;
+
+const { project, index, prev, next } = Astro.props as InferGetStaticPropsType<typeof getStaticPaths>;
+const pad = (n: number) => String(n).padStart(2, '0');
+---
+
+<Base title={`${project.name} | mosidas`} description={project.description}>
+  <div class="crumb">
+    <a href="/works/">← works/</a>
+    <span>{pad(index + 1)} / {pad(projects.length)}</span>
+  </div>
+  <Terminal>
+    <div class="detail">
+      <div class="readme">
+        <p class="cmd" aria-hidden="true">$ cat README.md</p>
+        <h1>{project.name}</h1>
+        <p class="desc">{project.description}</p>
+        <ul class="stack" aria-label="使用技術">
+          {project.stack.map((tech) => <li>{tech}</li>)}
+        </ul>
+        <a class="open" href={project.url}
+          ><span aria-hidden="true">$ </span>open <span class="url"
+            >{project.url.replace('https://', '')}<span aria-hidden="true">&nbsp;↗</span></span
+          ></a
+        >
+      </div>
+      <div class="shot" aria-hidden="true">[ スクリーンショット ]</div>
+    </div>
+  </Terminal>
+  <nav class="pager" aria-label="前後の制作物">
+    <a href={`/works/${prev.name}/`} aria-label={`前の制作物: ${prev.name}`}><span>←</span></a>
+    <a href={`/works/${next.name}/`} aria-label={`次の制作物: ${next.name}`}><span>→</span></a>
+  </nav>
+</Base>
+
+<style>
+  .crumb {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font: 0.75rem/1.5 var(--font-mono);
+    color: var(--faint);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .crumb a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    color: var(--muted);
+    text-decoration: none;
+  }
+
+  .crumb a:hover {
+    color: var(--accent-text);
+  }
+
+  .detail {
+    display: grid;
+    gap: 32px;
+  }
+
+  .readme {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    min-width: 0;
+  }
+
+  .readme p {
+    margin: 0;
+  }
+
+  .cmd {
+    font-size: 0.75rem;
+    color: var(--faint);
+  }
+
+  .readme h1 {
+    font: 600 1.875rem/1.1 var(--font-mono);
+    letter-spacing: -0.03em;
+    overflow-wrap: anywhere;
+  }
+
+  .desc {
+    font: 0.875rem/1.9 var(--font-sans);
+    color: var(--term-sub);
+    text-wrap: pretty;
+  }
+
+  .stack {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .stack li {
+    padding: 4px 12px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    font: 0.75rem/1.5 var(--font-mono);
+  }
+
+  /* flex にすると子の span の端の空白が消えるため、flex にせず padding と行の高さで高さ 44px を作る */
+  .open {
+    align-self: flex-start;
+    max-width: 100%;
+    box-sizing: border-box;
+    padding: 12px;
+    border-radius: 8px;
+    background: var(--term-fg);
+    color: var(--term-bg);
+    font: 0.75rem/1.25rem var(--font-mono);
+    text-decoration: none;
+  }
+
+  /* 折り返すときは URL の途中でなく open の後で折る */
+  .url {
+    display: inline-block;
+  }
+
+  .open:hover {
+    color: var(--term-bg);
+    text-decoration: underline;
+  }
+
+  .shot {
+    display: grid;
+    place-items: center;
+    align-self: center;
+    aspect-ratio: 4 / 3;
+    border-radius: 8px;
+    background: repeating-linear-gradient(135deg, var(--hover) 0 10px, var(--term-bg) 10px 20px);
+    font: 0.75rem/1.5 var(--font-mono);
+    color: var(--faint);
+  }
+
+  .pager {
+    display: flex;
+    justify-content: flex-end;
+    margin-right: -8px;
+  }
+
+  .pager a {
+    display: grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    color: var(--muted);
+    text-decoration: none;
+  }
+
+  .pager span {
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    box-sizing: border-box;
+    border: 1px solid var(--line);
+    background: var(--card);
+    font-size: 0.75rem;
+  }
+
+  .pager a:hover span {
+    border-color: var(--text);
+  }
+
+  @media (min-width: 64rem) {
+    .detail {
+      grid-template-columns: 1fr 1fr;
+    }
+  }
+</style>

@@ -1,0 +1,117 @@
+<div class="terminal">
+  <div class="dots" aria-hidden="true"><span></span><span></span><span></span></div>
+  <slot />
+</div>
+
+<style>
+  .terminal {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 16px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--term-bg);
+    color: var(--term-fg);
+    font: 0.875rem/1.6 var(--font-mono);
+  }
+
+  .dots {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 12px;
+  }
+
+  .dots span {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--line);
+  }
+
+  .dots span:last-child {
+    background: var(--accent);
+  }
+
+  /* 以下は各ページのスロットの中にあり、このコンポーネントのスコープが付かない */
+  .terminal :global(.prompt-line) {
+    margin: 0;
+  }
+
+  .terminal :global(.prompt) {
+    color: var(--accent2);
+  }
+
+  .terminal :global(.cursor-line) {
+    margin-top: auto;
+    padding-top: 12px;
+  }
+
+  .terminal :global(.cursor) {
+    display: inline-block;
+    width: 7px;
+    height: 13px;
+    vertical-align: -2px;
+    background: var(--term-fg);
+  }
+
+  .terminal :global(.log) {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .terminal :global(.log-row) {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 0 12px;
+    margin: 0 -8px;
+    padding: 4px 8px;
+    color: inherit;
+    text-decoration: none;
+  }
+
+  .terminal :global(.log-row:hover) {
+    color: inherit;
+    background: var(--hover);
+  }
+
+  .terminal :global(.log-row time) {
+    color: var(--faint);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .terminal :global(.log-row .tag) {
+    color: var(--accent-text);
+  }
+
+  .terminal :global(.log-row .text) {
+    grid-column: 1 / -1;
+    font-family: var(--font-sans);
+    text-wrap: pretty;
+  }
+
+  @media (min-width: 48rem) {
+    .terminal {
+      padding: 24px;
+    }
+
+    .terminal :global(.log-row) {
+      grid-template-columns: auto auto minmax(0, 1fr);
+    }
+
+    .terminal :global(.log-row .text) {
+      grid-column: auto;
+    }
+  }
+
+  /* タッチ環境では行を 44px 以上にする。マウス環境はモックの密度を保つ */
+  @media (any-pointer: coarse) {
+    .terminal :global(.log-row) {
+      min-height: 44px;
+      box-sizing: border-box;
+      align-content: center;
+    }
+  }
+</style>

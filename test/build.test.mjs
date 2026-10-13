@@ -18,8 +18,24 @@ const escapeHtml = (s) =>
 test('制作物の名前が決めた 6 件と順序まで一致する', () => {
   assert.deepEqual(
     projects.map((p) => p.name),
-    ['launchpad-lite', 'dev-skills', 'recognizer', 'lazy-finder', 'nullops', 'rename'],
+    ['launchpad-lite', 'nullops', 'dev-skills', 'recognizer', 'lazy-finder', 'rename'],
   );
+});
+
+test('name が英小文字とハイフンだけで、date が実在する YYYY-MM-DD で、short が空でない', () => {
+  for (const { name, date, short } of projects) {
+    assert.match(name, /^[a-z]+(-[a-z]+)*$/);
+    assert.match(date, /^\d{4}-\d{2}-\d{2}$/);
+    // Date.parse は 2026-02-30 を繰り上げて受け付けるため、往復して一致を見る
+    assert.equal(new Date(date).toISOString().slice(0, 10), date, `実在しない日付: ${name} の ${date}`);
+    assert.ok(short.trim().length > 0, `short が空: ${name}`);
+  }
+});
+
+test('制作物が date の新しい順に並ぶ', () => {
+  for (let i = 1; i < projects.length; i++) {
+    assert.ok(projects[i - 1].date >= projects[i].date, `順序が違う: ${projects[i].name}`);
+  }
 });
 
 test('すべての url が mosidas の GitHub リポジトリを指す', () => {
@@ -243,4 +259,40 @@ test('フォントを自前で配信し、CSS がそれを参照する', async (
   const css = (await Promise.all(cssFiles.map((f) => readDist(`_astro/${f}`)))).join('');
   assert.ok(css.includes('/fonts/mplus1code-latin.woff2'));
   assert.ok(css.includes('/fonts/mplus1code-latin-ext.woff2'));
+});
+
+test('dist/works/index.html が 6 件の詳細へのリンクを projects の順で持ち、日付と短い説明を表示する', async () => {
+  const page = await readDist('works/index.html');
+  let last = -1;
+  for (const { name, date, short } of projects) {
+    const link = `href="/works/${name}/"`;
+    assert.ok(page.includes(link), `リンクがない: ${name}`);
+    assert.ok(page.includes(`datetime="${date}">${date}</time>`), `日付がない: ${name}`);
+    assert.ok(page.includes(`>${escapeHtml(short)}</span>`), `短い説明がない: ${name}`);
+    const index = page.indexOf(link);
+    assert.ok(index > last, `順序が違う: ${name}`);
+    last = index;
+  }
+});
+
+test('各 dist/works/<name>/index.html が h1・GitHub へのリンク・前後の制作物へのリンク・使用技術・番号を持ち、img を含まない', async () => {
+  const n = projects.length;
+  for (const [i, { name, url, stack }] of projects.entries()) {
+    const page = await readDist(`works/${name}/index.html`);
+    assert.match(page, new RegExp(`<h1[^>]*>${name}</h1>`), `h1 がない: ${name}`);
+    assert.ok(page.includes(`href="${url}"`), `GitHub へのリンクがない: ${name}`);
+    for (const [label, other] of [['前', projects[(i - 1 + n) % n]], ['次', projects[(i + 1) % n]]]) {
+      assert.ok(
+        page.includes(`href="/works/${other.name}/" aria-label="${label}の制作物: ${other.name}"`),
+        `${label}のリンクがない: ${name} から ${other.name}`,
+      );
+    }
+    assert.ok(page.includes(`${String(i + 1).padStart(2, '0')} / 06`), `番号がない: ${name}`);
+    assert.ok(stack.length > 0, `使用技術がない: ${name}`);
+    for (const tech of stack) {
+      const escaped = tech.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      assert.match(page, new RegExp(`<li[^>]*>${escaped}</li>`), `使用技術がない: ${name} の ${tech}`);
+    }
+    assert.ok(!page.includes('<img'), `img がある: ${name}`);
+  }
 });
