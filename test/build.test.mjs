@@ -247,6 +247,15 @@ test('すべてのページのナビが 4 件のリンクを持ち、現在ペ�
   }
 });
 
+test('すべてのページのサイドバーの表題が mosida/ で、/ をアクセントの色の span で表示する', async () => {
+  for (const path of await allPages()) {
+    const title = (await readDist(path)).match(/<p class="site-title"[^>]*>([\s\S]*?)<\/p>/)?.[1] ?? '';
+    // 表題の文字列が mosida/ と一致すれば、~/mosida は残っていない
+    assert.equal(title.replace(/<[^>]*>/g, ''), 'mosida/', `表題が違う: ${path}`);
+    assert.match(title, /<span class="slash"[^>]*>\/<\/span>/, `/ の span がない: ${path}`);
+  }
+});
+
 test('すべてのページが GitHub・Zenn・プライバシーポリシーへリンクする', async () => {
   for (const path of await allPages()) {
     const page = await readDist(path);
@@ -334,7 +343,7 @@ test('dist/works/index.html が 6 件の詳細へのリンクを projects の順
   }
 });
 
-test('各 dist/works/<name>/index.html が h1・GitHub へのリンク・前後の制作物へのリンク・使用技術・番号を持つ', async () => {
+test('各 dist/works/<name>/index.html が h1・GitHub へのリンク・前後の制作物へのリンク・使用技術を持ち、パンくずを持たない', async () => {
   const n = projects.length;
   for (const [i, { name, url, stack }] of projects.entries()) {
     const page = await readDist(`works/${name}/index.html`);
@@ -346,7 +355,8 @@ test('各 dist/works/<name>/index.html が h1・GitHub へのリンク・前後�
         `${label}のリンクがない: ${name} から ${other.name}`,
       );
     }
-    assert.ok(page.includes(`${String(i + 1).padStart(2, '0')} / 06`), `番号がない: ${name}`);
+    assert.ok(!page.includes('class="crumb"') && !page.includes('← works/'), `パンくずが残る: ${name}`);
+    assert.doesNotMatch(page, /\d{2} \/ \d{2}/, `件数が残る: ${name}`);
     assert.ok(stack.length > 0, `使用技術がない: ${name}`);
     for (const tech of stack) {
       const escaped = tech.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
