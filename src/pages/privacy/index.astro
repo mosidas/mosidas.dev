@@ -1,36 +1,71 @@
 ---
 import Base from '../../layouts/Base.astro';
+import Terminal from '../../components/Terminal.astro';
 ---
 
 <Base title="プライバシーポリシー | mosidas" description="mosidas.dev が扱う情報と、利用する外部サービスについての説明。">
-  <h1>プライバシーポリシー</h1>
-  <p>本サイト(mosidas.dev)が扱う情報と、利用する外部サービスについて説明する。</p>
+  <Terminal>
+    <p class="prompt-line" aria-hidden="true"><span class="prompt">❯</span> cat privacy.md</p>
+    <h1 class="title">プライバシーポリシー</h1>
+    <p>本サイト(mosidas.dev)が扱う情報と、利用する外部サービスについて説明する。</p>
 
-  <h2>問い合わせ</h2>
-  <p>問い合わせのフォームで受け取った名前・メールアドレス・本文は、運営者宛のメールとして送る。</p>
-  <p>これらはサイトに保存しない。</p>
-  <p>連続した送信を制限するため、IP アドレスごとに受付時刻を記録する。</p>
-  <p>受付時刻は 60 秒を過ぎると消す。</p>
+    <h2>問い合わせ</h2>
+    <p>問い合わせのフォームで受け取った名前・メールアドレス・本文は、運営者宛のメールとして送る。</p>
+    <p>これらはサイトに保存しない。</p>
+    <p>連続した送信を制限するため、IP アドレスごとに受付時刻を記録する。</p>
+    <p>受付時刻は 60 秒を過ぎると消す。</p>
 
-  <h2>Turnstile</h2>
-  <p>ボットによる送信を防ぐため、問い合わせのページで Cloudflare Turnstile を使う。</p>
-  <p>Turnstile はブラウザーの情報と IP アドレスを Cloudflare へ送る。</p>
-  <p>
-    詳しくは <a href="https://www.cloudflare.com/turnstile-privacy-policy/">Turnstile Privacy Addendum</a> を参照する。
-  </p>
+    <h2>Turnstile</h2>
+    <p>ボットによる送信を防ぐため、問い合わせのページで Cloudflare Turnstile を使う。</p>
+    <p>Turnstile はブラウザーの情報と IP アドレスを Cloudflare へ送る。</p>
+    <p>
+      詳しくは <a href="https://www.cloudflare.com/turnstile-privacy-policy/">Turnstile Privacy Addendum</a> を参照する。
+    </p>
 
-  <h2>Cloudflare Web Analytics</h2>
-  <p>閲覧数と参照元を把握するため、すべてのページで Cloudflare Web Analytics を使う。</p>
-  <p>Web Analytics は Cookie を使わない。</p>
-  <p>送られる情報は、ページの URL・参照元・ブラウザーの情報などである。</p>
-  <p>
-    詳しくは <a href="https://www.cloudflare.com/privacypolicy/">Cloudflare のプライバシーポリシー</a> を参照する。
-  </p>
+    <h2>Cloudflare Web Analytics</h2>
+    <p>閲覧数と参照元を把握するため、すべてのページで Cloudflare Web Analytics を使う。</p>
+    <p>Web Analytics は Cookie を使わない。</p>
+    <p>送られる情報は、ページの URL・参照元・ブラウザーの情報などである。</p>
+    <p>
+      詳しくは <a href="https://www.cloudflare.com/privacypolicy/">Cloudflare のプライバシーポリシー</a> を参照する。
+    </p>
 
-  <h2>問い合わせ先</h2>
-  <p>本ポリシーについては <a href="/contact/">問い合わせのページ</a> から連絡する。</p>
+    <h2>問い合わせ先</h2>
+    <p>本ポリシーについては <a href="/contact/">問い合わせのページ</a> から連絡する。</p>
 
-  <h2>制定日</h2>
-  <p>2026 年 10 月 13 日 制定</p>
-  <p>運営者: mosidas</p>
+    <h2>制定日</h2>
+    <p>2026 年 10 月 13 日 制定</p>
+    <p>運営者: mosidas</p>
+    <p class="prompt-line cursor-line" aria-hidden="true"><span class="prompt">❯</span> <span class="cursor"></span></p>
+  </Terminal>
 </Base>
+
+<style>
+  /* Base の main h1 より詳細度を上げるため class で指定する */
+  .title {
+    margin: 0 0 8px;
+  }
+
+  /* 見出しの記号は飾りなので、代替テキストを空にして読み上げから外す */
+  .title::before {
+    content: '# ' / '';
+  }
+
+  h2 {
+    margin: 12px 0 0;
+    font: 600 0.875rem/1.6 var(--font-mono);
+    color: var(--term-fg);
+  }
+
+  h2::before {
+    content: '## ' / '';
+  }
+
+  p:not(.prompt-line) {
+    max-width: 37.5rem;
+    margin: 0;
+    font: 0.875rem/1.9 var(--font-sans);
+    color: var(--term-sub);
+    text-wrap: pretty;
+  }
+</style>

@@ -15,7 +15,7 @@ const ymd = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Tokyo' });
     <p class="prompt-line" aria-hidden="true"><span class="prompt">❯</span> cat about.txt</p>
     <p class="about">ソフトウェアエンジニア。macOS 向けのランチャーやデスクトップアプリ、TUI、推論ライブラリなどを個人で開発している。</p>
     <p class="prompt-line" aria-hidden="true"><span class="prompt">❯</span> ls stack/</p>
-    <ul class="dirs">
+    <ul class="dirs" aria-label="使用技術">
       <li>swift/</li>
       <li>go/</li>
       <li>csharp/</li>
@@ -100,6 +100,7 @@ const ymd = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Tokyo' });
     font-family: var(--font-sans);
     color: var(--term-sub);
     text-wrap: pretty;
+    overflow-wrap: anywhere;
   }
 
   h3 {

@@ -118,6 +118,12 @@ test('問い合わせのページが送信先と 3 項目と Turnstile を持つ
   assert.match(contact, /data-sitekey="[^"]+"/);
 });
 
+test('問い合わせのページが send の送信ボタンを持つ', () => {
+  const button = contact.match(/<button[^>]*type="submit"[^>]*>([\s\S]*?)<\/button>/);
+  assert.ok(button, '送信ボタンがない');
+  assert.ok(button[1].includes('send'), `送信ボタンの文言が違う: ${button[1]}`);
+});
+
 test('問い合わせのページの script は Turnstile の 1 本だけで、インラインの style を含まない', () => {
   const scripts = stripBeacon(contact).match(/<script[^>]*>/g) ?? [];
   assert.equal(scripts.length, 1);
