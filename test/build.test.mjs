@@ -188,6 +188,7 @@ test('プライバシーポリシーのページが Turnstile と Web Analytics 
   for (const word of ['Turnstile', 'Web Analytics', 'Cookie']) {
     assert.ok(privacy.includes(word), `記述がない: ${word}`);
   }
+  assert.ok(privacy.includes('サーバーには保存しません。'));
 });
 
 test('トップと問い合わせのページがフッターからプライバシーポリシーへリンクする', () => {
