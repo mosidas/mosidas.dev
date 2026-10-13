@@ -1,9 +1,12 @@
 ---
 import { projects } from '../data/projects';
 import newsJson from '../data/news.json';
+import zennJson from '../data/zenn.json';
 import Base from '../layouts/Base.astro';
 
 const news: { id: string; title: string; publishedAt: string; body: string }[] = newsJson;
+// scripts/fetch-zenn.mjs でも検証済みだが、表示側でも Zenn 以外へのリンクを出さない
+const articles = (zennJson as { title: string; url: string; date: string }[]).filter((a) => a.url.startsWith('https://zenn.dev/'));
 const dateFormat = new Intl.DateTimeFormat('ja-JP', { timeZone: 'Asia/Tokyo', dateStyle: 'long' });
 ---
 
@@ -43,6 +46,23 @@ const dateFormat = new Intl.DateTimeFormat('ja-JP', { timeZone: 'Asia/Tokyo', da
         </ol>
       ) : (
         <p>お知らせはまだない。</p>
+      )
+    }
+  </section>
+  <section class="articles" aria-labelledby="articles-heading">
+    <h2 id="articles-heading">記事</h2>
+    {
+      articles.length > 0 ? (
+        <ol class="article-list">
+          {articles.map((article) => (
+            <li>
+              <time datetime={article.date}>{dateFormat.format(new Date(article.date))}</time>
+              <h3><a href={article.url}>{article.title}</a></h3>
+            </li>
+          ))}
+        </ol>
+      ) : (
+        <p>記事はまだない。</p>
       )
     }
   </section>
@@ -93,11 +113,13 @@ const dateFormat = new Intl.DateTimeFormat('ja-JP', { timeZone: 'Asia/Tokyo', da
     color: var(--muted);
   }
 
-  .news {
+  .news,
+  .articles {
     margin-top: 48px;
   }
 
-  .news-list {
+  .news-list,
+  .article-list {
     margin: 0;
     padding: 0;
     list-style: none;
