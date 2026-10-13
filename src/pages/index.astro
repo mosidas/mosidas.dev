@@ -13,13 +13,17 @@ const ymd = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Tokyo' });
     <p class="prompt-line" aria-hidden="true"><span class="prompt">❯</span> whoami</p>
     <h1 class="name">mosida</h1>
     <p class="prompt-line" aria-hidden="true"><span class="prompt">❯</span> cat about.txt</p>
-    <p class="about">ソフトウェアエンジニア。macOS 向けのランチャーやデスクトップアプリ、TUI、推論ライブラリなどを個人で開発している。</p>
-    <p class="prompt-line" aria-hidden="true"><span class="prompt">❯</span> ls stack/</p>
-    <ul class="dirs" aria-label="使用技術">
-      <li>swift/</li>
-      <li>go/</li>
-      <li>csharp/</li>
-      <li>typescript/</li>
+    <p class="about">名古屋でソフトウェアエンジニアをしています。</p>
+    <p class="about hobby">趣味</p>
+    <ul class="hobbies">
+      <li>読書: <a href="https://bookmeter.com/users/1496591/books/read">読んだ本</a></li>
+      <li>カラオケ</li>
+      <li>ゴルフ</li>
+    </ul>
+    <p class="prompt-line" aria-hidden="true"><span class="prompt">❯</span> cat stack.txt</p>
+    <ul class="stack" aria-label="使用技術">
+      <li>Swift / Go / C# / TypeScript</li>
+      <li><a href="https://lapras.com/public/SI8OEWA">LAPRAS<span aria-hidden="true">&nbsp;↗</span></a></li>
     </ul>
     <section class="news" aria-labelledby="news-heading">
       <h2 id="news-heading" class="visually-hidden">お知らせ</h2>
@@ -59,7 +63,8 @@ const ymd = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Tokyo' });
     letter-spacing: -0.03em;
   }
 
-  .about {
+  .about,
+  .hobbies {
     max-width: 35rem;
     margin: 0 0 12px;
     font: 0.875rem/1.9 var(--font-sans);
@@ -67,10 +72,17 @@ const ymd = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Tokyo' });
     text-wrap: pretty;
   }
 
-  .dirs {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px 16px;
+  /* 「趣味」と一覧は続けて読ませるため、間を Terminal の gap だけにする */
+  .hobby {
+    margin-bottom: 0;
+  }
+
+  .hobbies {
+    padding: 0;
+    list-style: '- ' inside;
+  }
+
+  .stack {
     margin: 0 0 12px;
     padding: 0;
     list-style: none;

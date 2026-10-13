@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { access, readFile, readdir } from 'node:fs/promises';
+import { access, readFile, readdir, stat } from 'node:fs/promises';
 import { projects } from '../src/data/projects.ts';
 import { beaconToken } from '../src/analytics.ts';
 import news from '../src/data/news.json' with { type: 'json' };
@@ -63,17 +63,30 @@ test('日付の整形が JST の YYYY-MM-DD を返す', () => {
   assert.equal(ymd.format(new Date('2026-01-01T15:00:00.000Z')), '2026-01-02');
 });
 
-test('dist/index.html が whoami・about.txt・stack/・news.log の 4 ブロックと、GitHub・Zenn・/works/・/articles/・/contact/・/privacy/ へのリンクを持つ', () => {
+test('dist/index.html が whoami・about.txt・stack.txt・news.log の 4 ブロックと、GitHub・Zenn・/works/・/articles/・/contact/・/privacy/ へのリンクを持つ', () => {
   assert.ok(html.includes('<title>mosida</title>'));
-  for (const command of ['whoami', 'cat about.txt', 'ls stack/', 'tail news.log']) {
+  for (const command of ['whoami', 'cat about.txt', 'cat stack.txt', 'tail news.log']) {
     assert.ok(html.includes(`</span> ${command}</p>`), `プロンプトがない: ${command}`);
   }
   assert.match(html, /<h1[^>]*>mosida<\/h1>/);
-  assert.match(html, /<p[^>]*class="about"[^>]*>ソフトウェアエンジニア。/);
-  for (const dir of ['swift/', 'go/', 'csharp/', 'typescript/']) {
-    assert.match(html, new RegExp(`<li[^>]*>${dir}</li>`), `stack がない: ${dir}`);
+  assert.match(html, /<p[^>]*class="about"[^>]*>名古屋でソフトウェアエンジニアをしています。<\/p>/);
+  assert.match(html, /<li[^>]*>Swift \/ Go \/ C# \/ TypeScript<\/li>/);
+  assert.ok(html.includes('aria-label="使用技術"'));
+  for (const hobby of ['カラオケ', 'ゴルフ']) {
+    assert.match(html, new RegExp(`<li[^>]*>${hobby}</li>`), `趣味がない: ${hobby}`);
   }
-  for (const href of ['https://github.com/mosidas', 'https://zenn.dev/mosida', '/works/', '/articles/', '/contact/', '/privacy/']) {
+  assert.ok(html.includes('>読んだ本</a>'));
+  assert.ok(html.includes('>LAPRAS<'));
+  for (const href of [
+    'https://github.com/mosidas',
+    'https://zenn.dev/mosida',
+    '/works/',
+    '/articles/',
+    '/contact/',
+    '/privacy/',
+    'https://bookmeter.com/users/1496591/books/read',
+    'https://lapras.com/public/SI8OEWA',
+  ]) {
     assert.ok(html.includes(`href="${href}"`), `リンクがない: ${href}`);
   }
 });
@@ -172,9 +185,10 @@ const privacy = await readDist('privacy/index.html');
 
 test('プライバシーポリシーのページが Turnstile と Web Analytics の利用を説明する', () => {
   assert.match(privacy, /<h1[^>]*>プライバシーポリシー<\/h1>/);
-  for (const word of ['Turnstile', 'Web Analytics', 'Cookie']) {
+  for (const word of ['Turnstile', 'Web Analytics']) {
     assert.ok(privacy.includes(word), `記述がない: ${word}`);
   }
+  assert.ok(privacy.includes('第三者には提供しません。'));
 });
 
 test('トップと問い合わせのページがフッターからプライバシーポリシーへリンクする', () => {
@@ -249,6 +263,31 @@ test('dist の HTML に名前としての mosidas が残っていない', async 
   }
 });
 
+test('各制作物の description が句点 1 つで終わる 1 文である', () => {
+  for (const { name, description } of projects) {
+    assert.ok(description.endsWith('。'), `句点で終わらない: ${name}`);
+    assert.equal(description.split('。').length, 2, `1 文でない: ${name}`);
+  }
+});
+
+test('すべてのページで表示用のプロンプト記号が ❯ で、$ が残っていない', async () => {
+  for (const path of await allPages()) {
+    const page = await readDist(path);
+    assert.doesNotMatch(page, /<span aria-hidden="true"[^>]*>\$/, `$ が残る: ${path}`);
+    assert.ok(!page.includes('$ cat'), `$ cat が残る: ${path}`);
+  }
+  assert.match(html, /<span aria-hidden="true"[^>]*>❯<\/span> top/);
+});
+
+test('問い合わせの補足文とトップへ戻るリンクがどのページにも無い', async () => {
+  for (const path of await allPages()) {
+    const page = await readDist(path);
+    for (const word of ['保存せず', 'トップページへ戻る']) {
+      assert.ok(!page.includes(word), `含む: ${path} の ${word}`);
+    }
+  }
+});
+
 test('すべてのページが外部フォント・インラインの script・style を含まない', async () => {
   for (const path of await allPages()) {
     const page = await readDist(path);
@@ -295,7 +334,7 @@ test('dist/works/index.html が 6 件の詳細へのリンクを projects の順
   }
 });
 
-test('各 dist/works/<name>/index.html が h1・GitHub へのリンク・前後の制作物へのリンク・使用技術・番号を持ち、img を含まない', async () => {
+test('各 dist/works/<name>/index.html が h1・GitHub へのリンク・前後の制作物へのリンク・使用技術・番号を持つ', async () => {
   const n = projects.length;
   for (const [i, { name, url, stack }] of projects.entries()) {
     const page = await readDist(`works/${name}/index.html`);
@@ -313,7 +352,25 @@ test('各 dist/works/<name>/index.html が h1・GitHub へのリンク・前後�
       const escaped = tech.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       assert.match(page, new RegExp(`<li[^>]*>${escaped}</li>`), `使用技術がない: ${name} の ${tech}`);
     }
-    assert.ok(!page.includes('<img'), `img がある: ${name}`);
+  }
+});
+
+test('各制作物のページが dist にある 300 KB 以下の webp のスクリーンショットを alt 付きで表示する', async () => {
+  for (const { name } of projects) {
+    const imgs = (await readDist(`works/${name}/index.html`)).match(/<img[^>]*>/g) ?? [];
+    assert.ok(imgs.length > 0, `img がない: ${name}`);
+    for (const img of imgs) {
+      const src = img.match(/ src="([^"]*)"/)?.[1] ?? '';
+      assert.match(src, /^\/_astro\/[^/"]+\.webp$/, `webp でない: ${name} の ${src}`);
+      assert.ok((await stat(new URL('.' + src, DIST))).size <= 300 * 1024, `300 KB を超える: ${name} の ${src}`);
+      assert.match(img, / alt="[^"]+"/, `alt がない: ${name}`);
+    }
+  }
+});
+
+test('プレースホルダーの [ スクリーンショット ] がどのページにも無い', async () => {
+  for (const path of await allPages()) {
+    assert.ok(!(await readDist(path)).includes('[ スクリーンショット ]'), `残る: ${path}`);
   }
 });
 

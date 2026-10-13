@@ -92,6 +92,11 @@
     text-wrap: pretty;
   }
 
+  .terminal :global(.log-row :is(.tag, .text)) {
+    text-decoration: underline;
+    text-underline-offset: 0.2em;
+  }
+
   @media (min-width: 48rem) {
     .terminal {
       padding: 24px;
