@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { access, readFile } from 'node:fs/promises';
 import { projects } from '../src/data/projects.ts';
+import { beaconToken } from '../src/analytics.ts';
 import news from '../src/data/news.json' with { type: 'json' };
 
 const html = await readFile(new URL('../dist/index.html', import.meta.url), 'utf8');
@@ -105,12 +106,13 @@ test('Worker が参照する結果ページがすべてビルド成果物にあ�
   for (const name of names) await access(new URL(`../dist/contact/${name}/index.html`, import.meta.url));
 });
 
-test('CSP が Turnstile の読み込みと同一オリジンへの送信だけを許す', async () => {
+test('CSP が Turnstile と Web Analytics の読み込みと送信先だけを許す', async () => {
   const headers = await readFile(new URL('../public/_headers', import.meta.url), 'utf8');
   const csp = headers.match(/Content-Security-Policy: (.*)/)?.[1] ?? '';
   for (const directive of [
     "default-src 'none'",
-    'script-src https://challenges.cloudflare.com;',
+    'script-src https://challenges.cloudflare.com https://static.cloudflareinsights.com;',
+    'connect-src https://cloudflareinsights.com;',
     'frame-src https://challenges.cloudflare.com;',
     "form-action 'self'",
   ]) {
@@ -136,4 +138,22 @@ test('トップと問い合わせのページがフッターからプライバ�
 test('プライバシーポリシーのページが script とインラインの style を含まない', () => {
   assert.ok(!privacy.includes('<script'));
   assert.ok(!privacy.includes('<style'));
+});
+
+test('beaconToken が正しい形式の token を返す', () => {
+  assert.equal(beaconToken('0123456789abcdef0123456789abcdef', true), '0123456789abcdef0123456789abcdef');
+});
+
+test('beaconToken が CI の外で token が未設定なら undefined を返す', () => {
+  assert.equal(beaconToken(undefined, false), undefined);
+});
+
+test('beaconToken が CI で token が未設定なら失敗する', () => {
+  assert.throws(() => beaconToken(undefined, true), /PUBLIC_WEB_ANALYTICS_TOKEN が未設定/);
+});
+
+test('beaconToken が形式外の token を CI の内外で拒む', () => {
+  for (const ci of [true, false]) {
+    assert.throws(() => beaconToken('abc"}<script>', ci), (e) => e.message === 'PUBLIC_WEB_ANALYTICS_TOKEN の形式が不正');
+  }
 });
