@@ -480,7 +480,7 @@ beacon の token は、ビルド変数 `PUBLIC_WEB_ANALYTICS_TOKEN` から読む
 
 | ビルドの環境 | 未設定のときの動作 |
 | :-- | :-- |
-| `WORKERS_CI` あり(Workers Builds) | 「PUBLIC_WEB_ANALYTICS_TOKEN が未設定」でビルドが失敗する。前回の配信が続き、`build.mjs` が Issue「ビルドに失敗した(build)」を作る |
+| `WORKERS_CI` あり(Workers Builds) | 「PUBLIC_WEB_ANALYTICS_TOKEN が未設定」でビルドが失敗する。前回の配信が続く。`main` のビルドでは `build.mjs` が Issue「ビルドに失敗した(build)」を作る |
 | `WORKERS_CI` なし(ローカル) | warn のログを 1 行出し、beacon を出力しない |
 
 token は `src/analytics.ts` の `beaconToken` で `/^[\w-]{1,64}$/` に一致するかを検証し、一致しなければビルドを失敗させる。
@@ -511,7 +511,7 @@ Web Analytics は Cookie を使わない。
 
 1. Analytics & Logs > Web Analytics で、サイト `mosidas.dev` を追加する。自動セットアップ(JS の自動注入)は有効にせず、手動のスニペットを選ぶ。二重の計測と CSP 違反を防ぐためである。
 2. 表示されたスニペットの token を、Worker `mosidas-dev` の Settings > Build > Variables and secrets に、ビルド変数 `PUBLIC_WEB_ANALYTICS_TOKEN` として登録する。未登録だと `main` のビルドが「PUBLIC_WEB_ANALYTICS_TOKEN が未設定」で失敗し、前回の配信が続く。
-3. 本 PR(PR #<番号>)をマージする。
+3. PR #15(feat: Cloudflare Web Analytics を導入し、プライバシーポリシーのページを追加する)をマージする。
 4. `https://mosidas.dev/` をブラウザーで開く。コンソールに CSP 違反が出ないこと、Network に `cloudflareinsights.com/cdn-cgi/rum` への送信が出ることを確かめる。
 5. ダッシュボードの Web Analytics で、ページビューと参照元が表示されることを確かめる。
 6. `https://mosidas.dev/privacy/` を開き、Turnstile と Web Analytics の記載を確かめる。
