@@ -296,3 +296,22 @@ test('各 dist/works/<name>/index.html が h1・GitHub へのリンク・前後�
     assert.ok(!page.includes('<img'), `img がある: ${name}`);
   }
 });
+
+test('dist/articles/index.html が各記事のリンク・題名・日付を zenn.json の順で含む', async () => {
+  const page = await readDist('articles/index.html');
+  if (zenn.length === 0) {
+    assert.ok(page.includes('記事はまだない。'));
+  }
+  const ymd = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Tokyo' });
+  let last = -1;
+  for (const { title, url, date } of zenn) {
+    const link = `href="${escapeHtml(url)}"`;
+    assert.ok(page.includes(link), `リンクがない: ${url}`);
+    assert.ok(page.includes(`>${escapeHtml(title)}</span>`), `題名がない: ${title}`);
+    assert.ok(page.includes(`datetime="${date}"`), `日付がない: ${date}`);
+    assert.ok(page.includes(`>${ymd.format(new Date(date))}</time>`), `表示の日付がない: ${date}`);
+    const index = page.indexOf(link);
+    assert.ok(index > last, `順序が違う: ${url}`);
+    last = index;
+  }
+});
