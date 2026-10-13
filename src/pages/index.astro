@@ -1,146 +1,130 @@
 ---
-import { projects } from '../data/projects';
 import newsJson from '../data/news.json';
-import zennJson from '../data/zenn.json';
 import Base from '../layouts/Base.astro';
+import Terminal from '../components/Terminal.astro';
 
 const news: { id: string; title: string; publishedAt: string; body: string }[] = newsJson;
-// scripts/fetch-zenn.mjs でも検証済みだが、表示側でも Zenn 以外へのリンクを出さない
-const articles = (zennJson as { title: string; url: string; date: string }[]).filter((a) => a.url.startsWith('https://zenn.dev/'));
-const dateFormat = new Intl.DateTimeFormat('ja-JP', { timeZone: 'Asia/Tokyo', dateStyle: 'long' });
+// sv-SE は YYYY-MM-DD の形で返す
+const ymd = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Tokyo' });
 ---
 
-<Base
-  title="mosidas の制作物"
-  description="mosidas が個人で作ったソフトウェアの一覧。各制作物の概要と GitHub のリポジトリへのリンクを載せている。"
->
-  <h1>mosidas の制作物</h1>
-  <p class="lead">mosidas のポートフォリオ。個人で作ったソフトウェアを、概要と GitHub のリポジトリへのリンクとともに並べている。</p>
-  <ul>
-    {
-      projects.map((project) => (
-        <li>
-          <h2>{project.name}</h2>
-          <p>{project.description}</p>
-          <ul class="stack" aria-label="使用技術">
-            {project.stack.map((tech) => <li>{tech}</li>)}
-          </ul>
-          <a href={project.url}>{project.url}</a>
-        </li>
-      ))
-    }
-  </ul>
-  <section class="news" aria-labelledby="news-heading">
-    <h2 id="news-heading">お知らせ</h2>
-    {
-      news.length > 0 ? (
-        <ol class="news-list">
-          {news.map((item) => (
-            <li>
-              <time datetime={item.publishedAt}>{dateFormat.format(new Date(item.publishedAt))}</time>
-              <h3>{item.title}</h3>
-              {/* body は scripts/fetch-news.mjs でサニタイズ済み */}
-              <div class="news-body" set:html={item.body} />
-            </li>
-          ))}
-        </ol>
-      ) : (
-        <p>お知らせはまだない。</p>
-      )
-    }
-  </section>
-  <section class="articles" aria-labelledby="articles-heading">
-    <h2 id="articles-heading">記事</h2>
-    {
-      articles.length > 0 ? (
-        <ol class="article-list">
-          {articles.map((article) => (
-            <li>
-              <time datetime={article.date}>{dateFormat.format(new Date(article.date))}</time>
-              <h3><a href={article.url}>{article.title}</a></h3>
-            </li>
-          ))}
-        </ol>
-      ) : (
-        <p>記事はまだない。</p>
-      )
-    }
-  </section>
-  <p class="contact"><a href="/contact/">問い合わせ</a></p>
+<Base title="mosidas" description="mosidas のポートフォリオ。個人で作ったソフトウェア、Zenn の記事、お知らせを載せている。">
+  <Terminal>
+    <p class="prompt-line" aria-hidden="true"><span class="prompt">❯</span> whoami</p>
+    <h1 class="name">mosidas</h1>
+    <p class="prompt-line" aria-hidden="true"><span class="prompt">❯</span> cat about.txt</p>
+    <p class="about">ソフトウェアエンジニア。macOS 向けのランチャーやデスクトップアプリ、TUI、推論ライブラリなどを個人で開発している。</p>
+    <p class="prompt-line" aria-hidden="true"><span class="prompt">❯</span> ls stack/</p>
+    <ul class="dirs">
+      <li>swift/</li>
+      <li>go/</li>
+      <li>csharp/</li>
+      <li>typescript/</li>
+    </ul>
+    <p class="prompt-line" aria-hidden="true"><span class="prompt">❯</span> <span class="cursor"></span></p>
+    <section class="news" aria-labelledby="news-heading">
+      <h2 id="news-heading" class="visually-hidden">お知らせ</h2>
+      <p class="prompt-line" aria-hidden="true"><span class="prompt">❯</span> tail news.log</p>
+      {
+        news.length > 0 ? (
+          <ol class="log">
+            {news.map((item) => (
+              <li class="news-row">
+                <time datetime={item.publishedAt}>{ymd.format(new Date(item.publishedAt))}</time>
+                <div class="news-text">
+                  <h3>{item.title}</h3>
+                  {/* body は scripts/fetch-news.mjs でサニタイズ済み。空文字も正当な値なので区切りごと出さない */}
+                  {item.body && (
+                    <>
+                      {' — '}
+                      <div class="news-body" set:html={item.body} />
+                    </>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ol>
+        ) : (
+          <p class="empty">お知らせはまだない。</p>
+        )
+      }
+    </section>
+  </Terminal>
 </Base>
 
 <style>
-  .lead {
-    margin: 0 0 48px;
-    color: var(--muted);
+  /* Base の main h1 より詳細度を上げるため class で指定する */
+  .name {
+    margin: 0 0 12px;
+    letter-spacing: -0.03em;
   }
 
-  ul {
-    margin: 0;
-    padding: 0;
-    list-style: none;
+  .about {
+    max-width: 35rem;
+    margin: 0 0 12px;
+    font: 0.875rem/1.9 var(--font-sans);
+    color: var(--term-sub);
+    text-wrap: pretty;
   }
 
-  li {
-    padding: 24px 0;
-    border-top: 1px solid var(--line);
-  }
-
-  h2 {
-    margin: 0 0 8px;
-    font-size: 1.25rem;
-    font-weight: 600;
-    line-height: 1.4;
-  }
-
-  li p {
-    margin: 0 0 8px;
-  }
-
-  .stack {
+  .dirs {
     display: flex;
     flex-wrap: wrap;
-    gap: 6px;
+    gap: 4px 16px;
     margin: 0 0 12px;
-  }
-
-  .stack li {
-    padding: 2px 8px;
-    border: 1px solid var(--line);
-    border-radius: 4px;
-    font-size: 0.8125rem;
-    line-height: 1.5;
-    color: var(--muted);
-  }
-
-  .news,
-  .articles {
-    margin-top: 48px;
-  }
-
-  .news-list,
-  .article-list {
-    margin: 0;
     padding: 0;
     list-style: none;
   }
 
-  time {
-    display: block;
-    margin: 0 0 4px;
-    font-size: 0.875rem;
-    color: var(--muted);
+  .news {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-top: auto;
+    padding-top: 24px;
+  }
+
+  .news-row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 16px;
+    padding: 4px 0;
+  }
+
+  .news-row time {
+    color: var(--faint);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .news-text {
+    font-family: var(--font-sans);
+    color: var(--term-sub);
+    text-wrap: pretty;
   }
 
   h3 {
-    margin: 0 0 8px;
-    font-size: 1.0625rem;
+    display: inline;
+    font: inherit;
     font-weight: 600;
-    line-height: 1.4;
+    color: var(--term-fg);
   }
 
-  .news-body :global(:is(p, ul, ol)) {
-    margin: 0 0 8px;
+  /* 単一段落の本文は「題名 — 本文」の 1 行にし、2 つ目以降のブロックは下に続ける */
+  .news-body {
+    display: inline;
+  }
+
+  .news-body > :global(*) {
+    margin: 4px 0 0;
+  }
+
+  .news-body > :global(p:first-child) {
+    display: inline;
+    margin: 0;
+  }
+
+  .news-body :global(:is(ul, ol)) {
+    padding-left: 1.5em;
   }
 
   .news-body :global(img) {
@@ -148,7 +132,22 @@ const dateFormat = new Intl.DateTimeFormat('ja-JP', { timeZone: 'Asia/Tokyo', da
     height: auto;
   }
 
-  .contact {
-    margin: 48px 0 0;
+  /* 横スクロールを要素の中に閉じ込める。table は block にしないと overflow が効かない */
+  .news-body :global(pre),
+  .news-body :global(table) {
+    display: block;
+    overflow-x: auto;
+  }
+
+  .empty {
+    margin: 0;
+    font-family: var(--font-sans);
+    color: var(--term-sub);
+  }
+
+  @media (min-width: 48rem) {
+    .news-row {
+      grid-template-columns: 96px minmax(0, 1fr);
+    }
   }
 </style>
