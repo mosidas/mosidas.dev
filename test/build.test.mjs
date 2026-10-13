@@ -118,3 +118,22 @@ test('CSP が Turnstile の読み込みと同一オリジンへの送信だけ�
   }
   assert.ok(!csp.includes("'unsafe-inline'"));
 });
+
+const privacy = await readDist('privacy/index.html');
+
+test('プライバシーポリシーのページが Turnstile と Web Analytics の利用を説明する', () => {
+  assert.match(privacy, /<h1[^>]*>プライバシーポリシー<\/h1>/);
+  for (const word of ['Turnstile', 'Web Analytics', 'Cookie']) {
+    assert.ok(privacy.includes(word), `記述がない: ${word}`);
+  }
+});
+
+test('トップと問い合わせのページがフッターからプライバシーポリシーへリンクする', () => {
+  assert.ok(html.includes('href="/privacy/"'));
+  assert.ok(contact.includes('href="/privacy/"'));
+});
+
+test('プライバシーポリシーのページが script とインラインの style を含まない', () => {
+  assert.ok(!privacy.includes('<script'));
+  assert.ok(!privacy.includes('<style'));
+});

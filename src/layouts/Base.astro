@@ -20,6 +20,7 @@ const { title, description, noindex = false } = Astro.props;
     <main>
       <slot />
     </main>
+    <footer><a href="/privacy/">プライバシーポリシー</a></footer>
   </body>
 </html>
 
@@ -72,6 +73,22 @@ const { title, description, noindex = false } = Astro.props;
   }
 
   main :global(a:focus-visible) {
+    outline: 2px solid var(--link);
+    outline-offset: 2px;
+  }
+
+  footer {
+    max-width: 40rem;
+    margin: 0 auto;
+    padding: 0 24px 48px;
+    color: var(--muted);
+  }
+
+  footer a {
+    color: var(--link);
+  }
+
+  footer a:focus-visible {
     outline: 2px solid var(--link);
     outline-offset: 2px;
   }
