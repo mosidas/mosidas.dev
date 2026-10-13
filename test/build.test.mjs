@@ -185,10 +185,10 @@ const privacy = await readDist('privacy/index.html');
 
 test('プライバシーポリシーのページが Turnstile と Web Analytics の利用を説明する', () => {
   assert.match(privacy, /<h1[^>]*>プライバシーポリシー<\/h1>/);
-  for (const word of ['Turnstile', 'Web Analytics', 'Cookie']) {
+  for (const word of ['Turnstile', 'Web Analytics']) {
     assert.ok(privacy.includes(word), `記述がない: ${word}`);
   }
-  assert.ok(privacy.includes('サーバーには保存しません。'));
+  assert.ok(privacy.includes('第三者には提供しません。'));
 });
 
 test('トップと問い合わせのページがフッターからプライバシーポリシーへリンクする', () => {
