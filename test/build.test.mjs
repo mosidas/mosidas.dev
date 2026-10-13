@@ -215,7 +215,6 @@ test('全ページが beacon を token の設定時に 1 本、未設定時に 0
   }
 });
 
-
 const DIST = new URL('../dist/', import.meta.url);
 const allPages = async () => (await readdir(DIST, { recursive: true })).filter((f) => f.endsWith('index.html'));
 
