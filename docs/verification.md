@@ -377,11 +377,13 @@ URL が `https://api.cloudflare.com/client/v4/workers/builds/deploy_hooks/` で�
 `scripts/build.mjs` は、次の順に処理する。
 
 1. `scripts/fetch-news.mjs` でお知らせを取得する。
-2. 取得したコンテンツをスナップショットとしてコミットする。
-3. `astro build` を実行する。
+2. 本番のビルドでは、`content-snapshot` の `src/data/zenn.json` を checkout の同じパスに復元する(9.1 を参照)。
+3. `scripts/fetch-zenn.mjs` で Zenn の記事の一覧を取得する。
+4. 本番のビルドでは、取得したコンテンツをスナップショットとしてコミットする。
+5. `astro build` を実行する。
 
 スナップショットのコミット先は、同じリポジトリの orphan ブランチ `content-snapshot` である。
-tree は `src/data/news.json` と `public/news/images/*` だけを持つ。
+tree は `src/data/news.json`・`src/data/zenn.json`・`public/news/images/*` だけを持つ。
 コミットには GitHub REST API(Git Data)を使う。
 tree の sha が前回のコミットと同じなら、コミットしない。
 
@@ -400,6 +402,8 @@ fine-grained PAT で、対象は mosidas/mosidas.dev だけ、権限は Contents
 | 失敗 | 検知 |
 | :-- | :-- |
 | fetch-news の失敗 | `build.mjs` が Issue「ビルドに失敗した(fetch)」を作る |
+| `src/data/zenn.json` の復元の失敗 | ビルドを失敗させて配信しない。`build.mjs` が Issue「ビルドに失敗した(restore)」を作る |
+| Zenn の記事の一覧の取得の失敗 | ビルドは続く。`fetch-zenn.mjs` が error ログを 1 行出す。Issue は作らない(9.1 を参照) |
 | スナップショットのコミットの失敗 | ビルドを失敗させて配信しない。`build.mjs` が Issue「ビルドに失敗した(snapshot)」を作る |
 | `astro build` の失敗 | `build.mjs` が Issue「ビルドに失敗した(build)」を作る |
 | `SNAPSHOT_GITHUB_TOKEN` が未登録 | `missing_credentials` でビルドが失敗する。Issue は作れない |
@@ -453,8 +457,8 @@ Worker の Logs はダッシュボードで読んだ。wrangler の OAuth トー
 スナップショットからの復元は、次の手順で行う。自動化は対象外である。
 
 1. `git fetch origin content-snapshot` を実行する。
-2. `git restore --source=origin/content-snapshot --worktree -- src/data/news.json public/news/images` で内容を取り出す。インデックスは変えないので、`main` の追跡ファイルはステージされない。
-3. 取り出した内容を、microCMS に手で登録し直す。
+2. `git restore --source=origin/content-snapshot --worktree -- src/data/news.json src/data/zenn.json public/news/images` で内容を取り出す。インデックスは変えないので、`main` の追跡ファイルはステージされない。
+3. 取り出したお知らせと画像を、microCMS に手で登録し直す。`src/data/zenn.json` は、次のビルドで Zenn のフィードから取得し直される。
 
 推進室の資料(homepage-replace)との対応は次のとおりである。
 
@@ -464,6 +468,81 @@ Worker の Logs はダッシュボードで読んだ。wrangler の OAuth トー
 | 「バックアップと復元」の「ビルドのたびにコンテンツと画像も GitHub に保存する」 | 8.1 の `content-snapshot` へのコミットと、8.4 の復元の手順 |
 | 「障害時の動作」の「保守の担当者へ通知が届く」 | 8.1 の失敗時の Issue |
 | Cloudflare の費用の「Cron Triggers 2 件(ビルドの起動・アクセストークンの更新)」 | 本節で使うのはビルドの起動の 1 件である |
+
+## 9. Zenn の記事の一覧
+
+### 9.1 方式
+
+ビルド前スクリプト `scripts/fetch-zenn.mjs` が、Zenn のフィードから記事の一覧を取得する(コミット `0300008`・`93e206a`・`f8fde8d`)。
+フィードの URL の既定値は `https://zenn.dev/mosida/feed` である。Zenn のユーザー名は `mosida` で、GitHub の `mosidas` と異なる。
+環境変数 `ZENN_FEED_URL` があれば、その URL から取得する。URL は `https:` に限る。
+フィードは RSS 2.0 である。依存を追加せず、正規表現で `item` ごとの `title`・`link`・`pubDate` を取り出す。
+`link` は許可リストで検証する。許可するのは `https://zenn.dev/<ユーザー名>/articles/<スラッグ>` の形だけで、クエリ・フラグメント・ポートを持つ URL は除く。
+検証を通った記事を `pubDate` の降順に並べ、最新の 10 件を `src/data/zenn.json` に書く。
+トップページ(`src/pages/index.astro`)はそれを読み、題名を記事の URL へのリンクにして日付とともに表示する。
+
+取得または検証に失敗したら、`fetch-zenn.mjs` は error ログを 1 行出し、`zenn.json` を書き換えずに終了コード 0 で終わる。
+`item` が 1 件でも検証に失敗したら、一覧全体を失敗として扱う。一部が欠けた一覧で前回の一覧を上書きしないためである。
+
+`main` にある `src/data/zenn.json` は空の配列 `[]` である。
+そのまま取得に失敗すると、一覧が空のまま配信され、スナップショットの一覧も空に戻る。
+そのため、本番のビルドでは `build.mjs` が `fetch-zenn.mjs` の前に、`content-snapshot` の `src/data/zenn.json` を checkout の同じパスに復元する。
+復元には GitHub REST API(Contents)を使う。トークンは 8.1 の `SNAPSHOT_GITHUB_TOKEN` である。
+
+条件ごとのビルドの挙動は次のとおりである。
+
+| 条件 | 挙動 |
+| :-- | :-- |
+| 取得に成功した | 取得した一覧を `zenn.json` に書いてビルドする。本番では一覧をスナップショットにコミットする |
+| 取得に失敗し、復元に成功した(本番) | 復元した前回の一覧でビルドする。スナップショットの一覧は変わらない |
+| 取得に失敗し、スナップショットに `zenn.json` が無い(本番の初回) | checkout の `[]` でビルドし、トップページに「記事はまだない。」と表示する |
+| 取得に失敗した(ローカル・GitHub Actions) | 復元しない。checkout の `zenn.json` でビルドする |
+| 復元に失敗した(GitHub API の失敗、内容が JSON の配列でない、`SNAPSHOT_GITHUB_TOKEN` が未登録) | ビルドを失敗させて配信しない。前回の配信が続く。本番では Issue「ビルドに失敗した(restore)」を作る(8.1 を参照) |
+| `item` の検証に失敗した | 取得の失敗と同じく、前回の一覧でビルドする |
+
+見送った案と理由は次のとおりである。
+
+| 案 | 見送った理由 |
+| :-- | :-- |
+| XML パーサーの依存を追加する | 取り出す要素は `item` の 3 つだけで、正規表現で足りる。依存を増やすと更新と脆弱性の確認の対象が増える |
+| 取得の失敗でビルドを失敗させる | 記事の一覧は Zenn の状態に左右され、本サイトの配信を止める理由にならない。お知らせ(6.1)は本サイトのコンテンツのため、取得の失敗でビルドを失敗させる |
+| Zenn の API から取得する | フィードで記事の題名・URL・公開日を取得でき、一覧の表示に足りる |
+
+### 9.2 手順
+
+ユーザーの作業は無い。ビルド変数は登録せず、既定の URL を使う。
+
+AC2 を本番で確かめる手順は次のとおりである。本タスクでは実施しない。
+
+1. Worker `mosidas-dev` の Settings > Build > Variables and Secrets に、テキストのビルド変数 `ZENN_FEED_URL` を `https://127.0.0.1:9/feed` で登録する。
+2. Deploy Hook(`main`)を POST で呼ぶ。
+3. ビルドが成功し、ビルドログに「Zenn の記事の取得に失敗した」の error 行が出ること、トップページに前回の一覧が表示されることを確かめる。
+4. ビルド変数 `ZENN_FEED_URL` を削除する。
+
+### 9.3 計測
+
+2026-10-13 に、ローカル(`WORKERS_CI` が無い環境)で確かめた。
+
+| 項目 | 確かめ方 | 結果 |
+| :-- | :-- | :-- |
+| AC1: 新しい順の表示とリンク | `node scripts/fetch-zenn.mjs && npx astro build` を実行し、`dist/index.html` の記事のリンクと `<time>` を読む。確かめたら `git checkout src/data/zenn.json` で戻す | 取得は 2 件(`zenn.article_count: 2`)だった。`dist/index.html` には、2026年8月10日の `https://zenn.dev/mosida/articles/claude-code-large-task-design`、2026年7月18日の `https://zenn.dev/mosida/articles/psychological-safety-as-result` の順にリンクが出た |
+| AC2: 取得の失敗時の前回の一覧 | `ZENN_FEED_URL=https://127.0.0.1:9/feed npm run build` を実行し、終了コード、`zenn.json` の変化、`dist/index.html` を確かめる | checkout の `zenn.json`(`[]`)では、終了コードは 0 で、`git status` に差分は無く、トップページは「記事はまだない。」だった。AC1 で取得した 2 件の `zenn.json` で同じコマンドを実行すると、終了コードは 0 で、`zenn.json` の sha1 は実行の前後で同じだった。`dist/index.html` には 2 件のリンクが残った |
+| AC3: 失敗のログ | AC2 のコマンドの出力を読む | 次の error 行が出た |
+
+AC3 で出た error 行は次のとおりである。
+
+```json
+{"level":"error","msg":"Zenn の記事の取得に失敗した","error.type":"TypeError","app.error.origin":"system","app.error.transient":true}
+```
+
+本番(`main` のマージ後)の表示とビルドログの確認は、後続の反復で本節に追記する。
+
+### 9.4 注意点
+
+- フィードに記事以外の URL(本・スクラップ)が混ざると、`link` の検証に失敗し、一覧全体が失敗として扱われる。一覧は前回のまま更新されない。
+- `content-snapshot` に `zenn.json` が無い初回のビルドで取得に失敗すると、checkout の `[]` で進み、一覧は空になる。
+- GitHub REST API(Contents)は、1MB を超えるファイルの内容を返さない。`zenn.json` は最大 10 件のため、この上限に達しない。
+- Zenn のユーザー名を変えたときは、`scripts/fetch-zenn.mjs` の既定の URL を直す。
 
 ## 10. アクセス解析(Cloudflare Web Analytics)
 

@@ -4,11 +4,16 @@ import { access, readFile, readdir } from 'node:fs/promises';
 import { projects } from '../src/data/projects.ts';
 import { beaconToken } from '../src/analytics.ts';
 import news from '../src/data/news.json' with { type: 'json' };
+import zenn from '../src/data/zenn.json' with { type: 'json' };
 
 const html = await readFile(new URL('../dist/index.html', import.meta.url), 'utf8');
 // token の有無でビルド結果が変わる beacon を除き、それ以外の script の有無を判定する
 const BEACON = /<script defer src="https:\/\/static\.cloudflareinsights\.com\/beacon\.min\.js" data-cf-beacon="[^"]*"><\/script>/g;
 const stripBeacon = (page) => page.replace(BEACON, '');
+
+// Astro は html-escaper と同じ 5 文字を置換して描画する
+const escapeHtml = (s) =>
+  s.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;');
 
 test('制作物の名前が決めた 6 件と順序まで一致する', () => {
   assert.deepEqual(
@@ -46,15 +51,33 @@ test('dist/index.html がお知らせの見出しと各お知らせの題名・�
     assert.ok(html.includes('お知らせはまだない。'));
   }
   for (const { title, publishedAt } of news) {
-    // Astro は html-escaper と同じ 5 文字を置換して描画する
-    const escaped = title
-      .replaceAll('&', '&amp;')
-      .replaceAll('<', '&lt;')
-      .replaceAll('>', '&gt;')
-      .replaceAll('"', '&quot;')
-      .replaceAll("'", '&#39;');
-    assert.ok(html.includes(`>${escaped}</h3>`), `題名がない: ${title}`);
+    assert.ok(html.includes(`>${escapeHtml(title)}</h3>`), `題名がない: ${title}`);
     assert.ok(html.includes(`datetime="${publishedAt}"`), `日付がない: ${publishedAt}`);
+  }
+});
+
+test('zenn.json が 10 件以内で、日付の降順に並び、url がすべて Zenn を指す', () => {
+  assert.ok(zenn.length <= 10);
+  for (let i = 1; i < zenn.length; i++) {
+    assert.ok(Date.parse(zenn[i - 1].date) >= Date.parse(zenn[i].date), `降順でない: ${zenn[i].url}`);
+  }
+  for (const { url } of zenn) assert.ok(url.startsWith('https://zenn.dev/'), `Zenn でない: ${url}`);
+});
+
+test('dist/index.html が記事の見出しと各記事のリンク・題名・日付を zenn.json の順で含む', () => {
+  assert.match(html, /<h2[^>]*id="articles-heading"[^>]*>記事<\/h2>/);
+  if (zenn.length === 0) {
+    assert.ok(html.includes('記事はまだない。'));
+  }
+  let last = -1;
+  for (const { title, url, date } of zenn) {
+    const link = `href="${escapeHtml(url)}"`;
+    assert.ok(html.includes(link), `リンクがない: ${url}`);
+    assert.ok(html.includes(`>${escapeHtml(title)}</a></h3>`), `題名がない: ${title}`);
+    assert.ok(html.includes(`datetime="${date}"`), `日付がない: ${date}`);
+    const index = html.indexOf(link);
+    assert.ok(index > last, `順序が違う: ${url}`);
+    last = index;
   }
 });
 

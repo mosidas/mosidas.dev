@@ -2,6 +2,7 @@
 import { createHash } from 'node:crypto';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import sanitizeHtml from 'sanitize-html';
+import { log, logError } from './log.mjs';
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const IMAGE_HOST = 'images.microcms-assets.io';
@@ -172,27 +173,6 @@ export async function fetchNews(serviceDomain, apiKey) {
   return { news, images };
 }
 
-/** @param {Record<string, unknown>} fields */
-const log = (fields) => (fields.level === 'info' ? console.log : console.error)(JSON.stringify(fields));
-
-/** @param {unknown} err */
-function logError(err) {
-  const type = err instanceof FetchNewsError ? err.type : err instanceof Error ? err.name : 'unknown';
-  const transient = err instanceof FetchNewsError ? err.transient : type === 'TypeError' || type === 'TimeoutError';
-  const cause = err instanceof Error && /** @type {{ code?: unknown } | undefined} */ (err.cause)?.code;
-  const { target, url } = /** @type {{ target?: unknown, url?: unknown }} */ (err instanceof Error ? err : {});
-  log({
-    level: 'error',
-    msg: 'お知らせの取得に失敗した',
-    'error.type': type,
-    'app.error.origin': 'system',
-    'app.error.transient': transient,
-    ...(typeof target === 'string' && { 'app.fetch.target': target }),
-    ...(typeof url === 'string' && { 'url.full': url }),
-    ...(typeof cause === 'string' && { 'app.error.cause': cause }),
-  });
-}
-
 async function main() {
   const start = performance.now();
   const domain = process.env.MICROCMS_SERVICE_DOMAIN ?? '';
@@ -225,7 +205,7 @@ async function main() {
 
 if (import.meta.main) {
   main().catch((err) => {
-    logError(err);
+    logError('お知らせの取得に失敗した', err);
     process.exitCode = 1;
   });
 }

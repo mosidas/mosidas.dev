@@ -1,11 +1,14 @@
-// お知らせを取得し、本番のビルドでは取得したコンテンツを content-snapshot ブランチにコミットしてから astro build を行う。
+// お知らせと Zenn の記事を取得し、本番のビルドでは取得したコンテンツを content-snapshot ブランチにコミットしてから astro build を行う。
+// 本番では Zenn の取得の前に content-snapshot の zenn.json を復元し、取得に失敗しても前回の一覧でビルドする。
 // 失敗したら終了コード 1 で配信を止め、本番ではリポジトリに Issue を作る。
 import { spawnSync } from 'node:child_process';
-import { readdir, readFile } from 'node:fs/promises';
+import { readdir, readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
+import { log } from './log.mjs';
 
 const REPO = 'https://api.github.com/repos/mosidas/mosidas.dev';
 const SNAPSHOT_REF = 'heads/content-snapshot';
+const ZENN_PATH = 'src/data/zenn.json';
 const TIMEOUT_MS = 30_000;
 const ROOT = new URL('..', import.meta.url);
 
@@ -116,9 +119,6 @@ export async function createIssue(token, { stage, errorType, exitCode, detail })
   return { number: data.number };
 }
 
-/** @param {Record<string, unknown>} fields */
-const log = (fields) => (fields.level === 'info' ? console.log : console.error)(JSON.stringify(fields));
-
 class StageError extends Error {
   /**
    * @param {string} stage @param {string} type
@@ -132,6 +132,31 @@ class StageError extends Error {
     this.exitCode = exitCode;
     this.detail = detail;
   }
+}
+
+/** @param {string} stage @param {unknown} err */
+const toStageError = (stage, err) =>
+  new StageError(stage, err instanceof GitHubError ? err.type : err instanceof Error ? err.name : 'unknown', null, err instanceof Error ? err.message : '');
+
+/**
+ * content-snapshot ブランチの path を checkout の同じパスに書く。スナップショットに無ければ書かずに false を返す。
+ * @param {string} token
+ * @param {string} path JSON の配列を持つファイルのリポジトリ内のパス
+ * @returns {Promise<boolean>} 復元したか
+ */
+export async function restoreFromSnapshot(token, path) {
+  const { status, data } = await github(token, 'GET', `/contents/${path}?ref=content-snapshot`, undefined, [404]);
+  if (status === 404) return false;
+  const invalid = new StageError('restore', 'invalid_snapshot', null, `${path} の内容が JSON の配列でない`);
+  if (data?.encoding !== 'base64' || typeof data.content !== 'string') throw invalid;
+  const content = Buffer.from(data.content, 'base64');
+  try {
+    if (!Array.isArray(JSON.parse(content.toString('utf8')))) throw invalid;
+  } catch {
+    throw invalid;
+  }
+  await writeFile(new URL(path, ROOT), content);
+  return true;
 }
 
 /**
@@ -159,7 +184,7 @@ function assertRun(stage, r) {
 }
 
 async function readSnapshotFiles() {
-  const files = [{ path: 'src/data/news.json', content: await readFile(new URL('src/data/news.json', ROOT)) }];
+  const files = await Promise.all(['src/data/news.json', ZENN_PATH].map(async (path) => ({ path, content: await readFile(new URL(path, ROOT)) })));
   let entries = [];
   try {
     entries = await readdir(new URL('public/news/images/', ROOT), { withFileTypes: true });
@@ -185,23 +210,39 @@ export async function main(env = process.env, run = runNode) {
   const durations = {};
   /** @type {{ committed: boolean, sha?: string }} */
   let snapshot = { committed: false };
+  let zennRestored = false;
   let stage = 'fetch';
   try {
     let start = performance.now();
     assertRun(stage, run([fileURLToPath(new URL('scripts/fetch-news.mjs', ROOT))], childEnv));
     durations.fetch = Math.round(performance.now() - start);
 
-    stage = 'snapshot';
+    stage = 'restore';
     if (production) {
       start = performance.now();
       if (!token) throw new StageError(stage, 'missing_credentials', null, '');
+      try {
+        zennRestored = await restoreFromSnapshot(token, ZENN_PATH);
+      } catch (err) {
+        throw err instanceof StageError ? err : toStageError(stage, err);
+      }
+      durations.restore = Math.round(performance.now() - start);
+    }
+
+    stage = 'fetch_zenn';
+    start = performance.now();
+    assertRun(stage, run([fileURLToPath(new URL('scripts/fetch-zenn.mjs', ROOT))], childEnv));
+    durations.fetch_zenn = Math.round(performance.now() - start);
+
+    stage = 'snapshot';
+    if (production) {
+      start = performance.now();
       try {
         snapshot = await commitSnapshot(token, await readSnapshotFiles(), {
           message: `content: スナップショットを更新する(ビルド ${env.WORKERS_CI_BUILD_UUID ?? '不明'})`,
         });
       } catch (err) {
-        const type = err instanceof GitHubError ? err.type : err instanceof Error ? err.name : 'unknown';
-        throw new StageError(stage, type, null, err instanceof Error ? err.message : '');
+        throw toStageError(stage, err);
       }
       durations.snapshot = Math.round(performance.now() - start);
     }
@@ -245,9 +286,12 @@ export async function main(env = process.env, run = runNode) {
     msg: 'ビルドした',
     'app.build.production': production,
     'app.build.fetch.duration_ms': durations.fetch,
+    ...(durations.restore !== undefined && { 'app.build.restore.duration_ms': durations.restore }),
+    'app.build.fetch_zenn.duration_ms': durations.fetch_zenn,
     ...(durations.snapshot !== undefined && { 'app.build.snapshot.duration_ms': durations.snapshot }),
     'app.build.build.duration_ms': durations.build,
     'app.snapshot.committed': snapshot.committed,
+    'app.snapshot.zenn_restored': zennRestored,
     ...(snapshot.sha && { 'app.snapshot.commit_sha': snapshot.sha }),
   });
   return 0;
