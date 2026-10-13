@@ -76,7 +76,7 @@ if (!siteKey) {
     border-radius: 4px;
     font: inherit;
     color: var(--text);
-    background: var(--bg);
+    background: var(--panel);
   }
 
   textarea {
@@ -91,8 +91,8 @@ if (!siteKey) {
     border-radius: 4px;
     font: inherit;
     font-weight: 600;
-    color: var(--bg);
-    background: var(--link);
+    color: var(--panel);
+    background: var(--accent-text);
     cursor: pointer;
   }
 
@@ -101,7 +101,7 @@ if (!siteKey) {
   }
 
   :is(input, textarea, button):focus-visible {
-    outline: 2px solid var(--link);
+    outline: 2px solid var(--accent-text);
     outline-offset: 2px;
   }
 

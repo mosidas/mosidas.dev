@@ -141,6 +141,7 @@ test('CSP が Turnstile と Web Analytics の読み込みと送信先だけを�
     'connect-src https://cloudflareinsights.com;',
     'frame-src https://challenges.cloudflare.com;',
     "form-action 'self'",
+    "font-src 'self';",
   ]) {
     assert.ok(csp.includes(directive), `CSP にない: ${directive}`);
   }
@@ -192,4 +193,54 @@ test('全ページが beacon を token の設定時に 1 本、未設定時に 0
     const count = (await readDist(page)).match(BEACON)?.length ?? 0;
     assert.equal(count, expected, `beacon の本数が違う: ${page}`);
   }
+});
+
+
+const DIST = new URL('../dist/', import.meta.url);
+const allPages = async () => (await readdir(DIST, { recursive: true })).filter((f) => f.endsWith('index.html'));
+
+test('すべてのページのナビが 4 件のリンクを持ち、現在ページだけに aria-current を付ける', async () => {
+  const sections = { '': '/', contact: '/contact/', works: '/works/', articles: '/articles/' };
+  for (const path of await allPages()) {
+    const page = await readDist(path);
+    const nav = page.match(/<nav[^>]*>[\s\S]*?<\/nav>/)?.[0] ?? '';
+    const hrefs = [...nav.matchAll(/href="([^"]*)"/g)].map((m) => m[1]);
+    assert.deepEqual(hrefs, ['/', '/works/', '/articles/', '/contact/'], `ナビが違う: ${path}`);
+    const top = path.includes('/') ? path.split('/')[0] : '';
+    const expected = sections[top];
+    const current = page.match(/<a[^>]*aria-current="page"[^>]*>/g) ?? [];
+    assert.equal(current.length, expected ? 1 : 0, `aria-current の数が違う: ${path}`);
+    if (expected) assert.ok(current[0].includes(`href="${expected}"`), `aria-current の位置が違う: ${path}`);
+  }
+});
+
+test('すべてのページが GitHub・Zenn・プライバシーポリシーへリンクする', async () => {
+  for (const path of await allPages()) {
+    const page = await readDist(path);
+    for (const href of ['https://github.com/mosidas', 'https://zenn.dev/mosida', '/privacy/']) {
+      assert.ok(page.includes(`href="${href}"`), `リンクがない: ${path} の ${href}`);
+    }
+  }
+});
+
+test('すべてのページが外部フォント・インラインの script・style を含まない', async () => {
+  for (const path of await allPages()) {
+    const page = await readDist(path);
+    for (const word of ['fonts.googleapis.com', 'gstatic.com', '<style', ' style="']) {
+      assert.ok(!page.includes(word), `含む: ${path} の ${word}`);
+    }
+    for (const script of page.match(/<script[^>]*>/g) ?? []) {
+      assert.ok(script.includes('src="https://'), `インラインの script: ${path}`);
+    }
+  }
+});
+
+test('フォントを自前で配信し、CSS がそれを参照する', async () => {
+  for (const file of ['mplus1code-latin.woff2', 'mplus1code-latin-ext.woff2', 'OFL.txt']) {
+    await access(new URL(`fonts/${file}`, DIST));
+  }
+  const cssFiles = (await readdir(new URL('_astro/', DIST))).filter((f) => f.endsWith('.css'));
+  const css = (await Promise.all(cssFiles.map((f) => readDist(`_astro/${f}`)))).join('');
+  assert.ok(css.includes('/fonts/mplus1code-latin.woff2'));
+  assert.ok(css.includes('/fonts/mplus1code-latin-ext.woff2'));
 });
