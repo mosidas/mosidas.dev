@@ -1,5 +1,6 @@
 ---
-import type { GetStaticPaths, InferGetStaticPropsType } from 'astro';
+import type { GetStaticPaths, ImageMetadata, InferGetStaticPropsType } from 'astro';
+import { Image } from 'astro:assets';
 import Base from '../../layouts/Base.astro';
 import Terminal from '../../components/Terminal.astro';
 import { projects } from '../../data/projects';
@@ -15,6 +16,10 @@ export const getStaticPaths = (() => {
 
 const { project, index, prev, next } = Astro.props as InferGetStaticPropsType<typeof getStaticPaths>;
 const pad = (n: number) => String(n).padStart(2, '0');
+// node --test が projects.ts を直接読むため、画像の import は projects.ts に書けない
+const shots = import.meta.glob<{ default: ImageMetadata }>('../../assets/works/*.png', { eager: true });
+const shot = shots[`../../assets/works/${project.name}.png`]?.default;
+if (!shot) throw new Error(`スクリーンショットがない: ${project.name}`);
 ---
 
 <Base title={`${project.name} | mosida`} description={project.description}>
@@ -37,7 +42,15 @@ const pad = (n: number) => String(n).padStart(2, '0');
           ></a
         >
       </div>
-      <div class="shot" aria-hidden="true">[ スクリーンショット ]</div>
+      <div class="shot">
+        <Image
+          src={shot}
+          width={Math.min(shot.width, 1600)}
+          format="webp"
+          loading="lazy"
+          alt={`${project.name} のスクリーンショット`}
+        />
+      </div>
     </div>
   </Terminal>
   <nav class="pager" aria-label="前後の制作物">
@@ -140,15 +153,18 @@ const pad = (n: number) => String(n).padStart(2, '0');
     text-decoration: underline;
   }
 
+  /* 画像の幅で枠を縮め、小さい画像を引き伸ばさない。縦横比は画像ごとに違うため固定しない */
   .shot {
-    display: grid;
-    place-items: center;
-    align-self: center;
-    aspect-ratio: 4 / 3;
+    justify-self: start;
+    overflow: hidden;
+    border: 1px solid var(--line);
     border-radius: 8px;
-    background: repeating-linear-gradient(135deg, var(--hover) 0 10px, var(--term-bg) 10px 20px);
-    font: 0.75rem/1.5 var(--font-mono);
-    color: var(--faint);
+  }
+
+  .shot img {
+    display: block;
+    max-width: 100%;
+    height: auto;
   }
 
   .pager {
@@ -179,11 +195,5 @@ const pad = (n: number) => String(n).padStart(2, '0');
 
   .pager a:hover span {
     border-color: var(--text);
-  }
-
-  @media (min-width: 64rem) {
-    .detail {
-      grid-template-columns: 1fr 1fr;
-    }
   }
 </style>

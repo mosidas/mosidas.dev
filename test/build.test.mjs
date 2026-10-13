@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { access, readFile, readdir } from 'node:fs/promises';
+import { access, readFile, readdir, stat } from 'node:fs/promises';
 import { projects } from '../src/data/projects.ts';
 import { beaconToken } from '../src/analytics.ts';
 import news from '../src/data/news.json' with { type: 'json' };
@@ -334,7 +334,7 @@ test('dist/works/index.html が 6 件の詳細へのリンクを projects の順
   }
 });
 
-test('各 dist/works/<name>/index.html が h1・GitHub へのリンク・前後の制作物へのリンク・使用技術・番号を持ち、img を含まない', async () => {
+test('各 dist/works/<name>/index.html が h1・GitHub へのリンク・前後の制作物へのリンク・使用技術・番号を持つ', async () => {
   const n = projects.length;
   for (const [i, { name, url, stack }] of projects.entries()) {
     const page = await readDist(`works/${name}/index.html`);
@@ -352,7 +352,25 @@ test('各 dist/works/<name>/index.html が h1・GitHub へのリンク・前後�
       const escaped = tech.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       assert.match(page, new RegExp(`<li[^>]*>${escaped}</li>`), `使用技術がない: ${name} の ${tech}`);
     }
-    assert.ok(!page.includes('<img'), `img がある: ${name}`);
+  }
+});
+
+test('各制作物のページが dist にある 300 KB 以下の webp のスクリーンショットを alt 付きで表示する', async () => {
+  for (const { name } of projects) {
+    const imgs = (await readDist(`works/${name}/index.html`)).match(/<img[^>]*>/g) ?? [];
+    assert.ok(imgs.length > 0, `img がない: ${name}`);
+    for (const img of imgs) {
+      const src = img.match(/ src="([^"]*)"/)?.[1] ?? '';
+      assert.match(src, /^\/_astro\/[^/"]+\.webp$/, `webp でない: ${name} の ${src}`);
+      assert.ok((await stat(new URL('.' + src, DIST))).size <= 300 * 1024, `300 KB を超える: ${name} の ${src}`);
+      assert.match(img, / alt="[^"]+"/, `alt がない: ${name}`);
+    }
+  }
+});
+
+test('プレースホルダーの [ スクリーンショット ] がどのページにも無い', async () => {
+  for (const path of await allPages()) {
+    assert.ok(!(await readDist(path)).includes('[ スクリーンショット ]'), `残る: ${path}`);
   }
 });
 
