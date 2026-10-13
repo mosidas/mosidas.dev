@@ -1,11 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { access, readFile } from 'node:fs/promises';
+import { access, readFile, readdir } from 'node:fs/promises';
 import { projects } from '../src/data/projects.ts';
 import { beaconToken } from '../src/analytics.ts';
 import news from '../src/data/news.json' with { type: 'json' };
 
 const html = await readFile(new URL('../dist/index.html', import.meta.url), 'utf8');
+// token の有無でビルド結果が変わる beacon を除き、それ以外の script の有無を判定する
+const BEACON = /<script defer src="https:\/\/static\.cloudflareinsights\.com\/beacon\.min\.js" data-cf-beacon="[^"]*"><\/script>/g;
+const stripBeacon = (page) => page.replace(BEACON, '');
 
 test('制作物の名前が決めた 6 件と順序まで一致する', () => {
   assert.deepEqual(
@@ -56,7 +59,7 @@ test('dist/index.html がお知らせの見出しと各お知らせの題名・�
 });
 
 test('dist/index.html が script とインラインの style を含まない', () => {
-  assert.ok(!html.includes('<script'));
+  assert.ok(!stripBeacon(html).includes('<script'));
   assert.ok(!html.includes('<style'));
 });
 
@@ -79,7 +82,7 @@ test('問い合わせのページが送信先と 3 項目と Turnstile を持つ
 });
 
 test('問い合わせのページの script は Turnstile の 1 本だけで、インラインの style を含まない', () => {
-  const scripts = contact.match(/<script[^>]*>/g) ?? [];
+  const scripts = stripBeacon(contact).match(/<script[^>]*>/g) ?? [];
   assert.equal(scripts.length, 1);
   assert.match(scripts[0], /src="https:\/\/challenges\.cloudflare\.com\/turnstile\/v0\/api\.js"/);
   assert.ok(!contact.includes('<style'));
@@ -136,7 +139,7 @@ test('トップと問い合わせのページがフッターからプライバ�
 });
 
 test('プライバシーポリシーのページが script とインラインの style を含まない', () => {
-  assert.ok(!privacy.includes('<script'));
+  assert.ok(!stripBeacon(privacy).includes('<script'));
   assert.ok(!privacy.includes('<style'));
 });
 
@@ -155,5 +158,15 @@ test('beaconToken が CI で token が未設定なら失敗する', () => {
 test('beaconToken が形式外の token を CI の内外で拒む', () => {
   for (const ci of [true, false]) {
     assert.throws(() => beaconToken('abc"}<script>', ci), (e) => e.message === 'PUBLIC_WEB_ANALYTICS_TOKEN の形式が不正');
+  }
+});
+
+test('全ページが beacon を token の設定時に 1 本、未設定時に 0 本含む', async () => {
+  const expected = process.env.PUBLIC_WEB_ANALYTICS_TOKEN ? 1 : 0;
+  const pages = (await readdir(new URL('../dist/', import.meta.url), { recursive: true })).filter((f) => f.endsWith('index.html'));
+  assert.ok(pages.length >= 8, `ページが足りない: ${pages.length}`);
+  for (const page of pages) {
+    const count = (await readDist(page)).match(BEACON)?.length ?? 0;
+    assert.equal(count, expected, `beacon の本数が違う: ${page}`);
   }
 });
