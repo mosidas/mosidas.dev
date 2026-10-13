@@ -18,10 +18,10 @@ const ymd = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Tokyo' });
         <ol class="log">
           {articles.map((a) => (
             <li>
-              <a class="log-row" href={a.url}>
+              <a class="log-row" href={a.url} target="_blank" rel="noopener noreferrer">
                 <time datetime={a.date}>{ymd.format(new Date(a.date))}</time>
                 <span class="tag">[zenn]</span>
-                <span class="text">{a.title}</span>
+                <span class="text">{a.title}<span aria-hidden="true">&nbsp;↗</span><span class="visually-hidden">(新しいタブで開く)</span></span>
               </a>
             </li>
           ))}

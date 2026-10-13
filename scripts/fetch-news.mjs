@@ -91,7 +91,8 @@ function sanitizeBody(html, downloads) {
       'a', 'img', 'figure', 'figcaption', 'hr', 'table', 'thead', 'tbody', 'tr', 'th', 'td',
     ],
     allowedAttributes: {
-      a: ['href'],
+      // target・rel は transformTags で固定値に上書きするため、入力の値は残らない
+      a: ['href', 'target', 'rel'],
       img: ['src', 'alt', 'width', 'height'],
       th: ['colspan', 'rowspan'],
       td: ['colspan', 'rowspan'],
@@ -102,6 +103,7 @@ function sanitizeBody(html, downloads) {
       h1: sanitizeHtml.simpleTransform('h4', {}),
       h2: sanitizeHtml.simpleTransform('h4', {}),
       h3: sanitizeHtml.simpleTransform('h4', {}),
+      a: sanitizeHtml.simpleTransform('a', { target: '_blank', rel: 'noopener noreferrer' }),
       img: (tagName, attribs) => {
         const { src, ...rest } = attribs;
         const image = acceptImage(src);

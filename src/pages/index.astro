@@ -16,14 +16,14 @@ const ymd = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Tokyo' });
     <p class="about">名古屋でソフトウェアエンジニアをしています。</p>
     <p class="about hobby">趣味</p>
     <ul class="hobbies">
-      <li>読書: <a href="https://bookmeter.com/users/1496591/books/read">読んだ本</a></li>
+      <li>読書: <a href="https://bookmeter.com/users/1496591/books/read" target="_blank" rel="noopener noreferrer">読んだ本<span aria-hidden="true">&nbsp;↗</span><span class="visually-hidden">(新しいタブで開く)</span></a></li>
       <li>カラオケ</li>
       <li>ゴルフ</li>
     </ul>
     <p class="prompt-line" aria-hidden="true"><span class="prompt">❯</span> cat stack.txt</p>
     <ul class="stack" aria-label="使用技術">
       <li>Swift / Go / C# / TypeScript</li>
-      <li><a href="https://lapras.com/public/SI8OEWA">LAPRAS<span aria-hidden="true">&nbsp;↗</span></a></li>
+      <li><a href="https://lapras.com/public/SI8OEWA" target="_blank" rel="noopener noreferrer">LAPRAS<span aria-hidden="true">&nbsp;↗</span><span class="visually-hidden">(新しいタブで開く)</span></a></li>
     </ul>
     <section class="news" aria-labelledby="news-heading">
       <h2 id="news-heading" class="visually-hidden">お知らせ</h2>
@@ -143,6 +143,12 @@ const ymd = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Tokyo' });
 
   .news-body :global(:is(ul, ol)) {
     padding-left: 1.5em;
+  }
+
+  .news-body :global(a)::after {
+    /* 1 行目は代替テキストの構文を解釈しないブラウザー向けの退避 */
+    content: '\a0↗';
+    content: '\a0↗' / '(新しいタブで開く)';
   }
 
   .news-body :global(img) {

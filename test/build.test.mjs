@@ -75,7 +75,7 @@ test('dist/index.html が whoami・about.txt・stack.txt・news.log の 4 ブロ
   for (const hobby of ['カラオケ', 'ゴルフ']) {
     assert.match(html, new RegExp(`<li[^>]*>${hobby}</li>`), `趣味がない: ${hobby}`);
   }
-  assert.ok(html.includes('>読んだ本</a>'));
+  assert.ok(html.includes('>読んだ本<span aria-hidden="true"'));
   assert.ok(html.includes('>LAPRAS<'));
   for (const href of [
     'https://github.com/mosidas',
@@ -247,6 +247,35 @@ test('すべてのページのナビが 4 件のリンクを持ち、現在ペ�
   }
 });
 
+test('すべてのページのサイドバーの表題が mosida/ で、/ をアクセントの色の span で表示する', async () => {
+  for (const path of await allPages()) {
+    const title = (await readDist(path)).match(/<p class="site-title"[^>]*>([\s\S]*?)<\/p>/)?.[1] ?? '';
+    // 表題の文字列が mosida/ と一致すれば、~/mosida は残っていない
+    assert.equal(title.replace(/<[^>]*>/g, ''), 'mosida/', `表題が違う: ${path}`);
+    assert.match(title, /<span class="slash"[^>]*>\/<\/span>/, `/ の span がない: ${path}`);
+  }
+});
+
+const EXTERNAL = /<a\b[^>]*href="https?:\/\/[^"]*"[^>]*>[\s\S]*?<\/a>/g;
+
+test('サイト外へのリンクがすべて新しいタブで開き、読み上げでそれを伝える', async () => {
+  let count = 0;
+  for (const path of await allPages()) {
+    const page = await readDist(path);
+    for (const a of page.match(EXTERNAL) ?? []) {
+      const open = a.slice(0, a.indexOf('>') + 1);
+      assert.ok(open.includes('target="_blank"'), `target がない: ${path} の ${open}`);
+      assert.ok(open.includes('rel="noopener noreferrer"'), `rel がない: ${path} の ${open}`);
+      count++;
+    }
+    // お知らせ本文の矢印と読み上げは CSS の ::after で付けるため、文言の検査から外す(本文は div を許可していない)
+    for (const a of page.replace(/<div class="news-body"[^>]*>[\s\S]*?<\/div>/g, '').match(EXTERNAL) ?? []) {
+      assert.ok(a.includes('(新しいタブで開く)'), `読み上げの文言がない: ${path} の ${a}`);
+    }
+  }
+  assert.ok(count > 0, '外部リンクが見つからない');
+});
+
 test('すべてのページが GitHub・Zenn・プライバシーポリシーへリンクする', async () => {
   for (const path of await allPages()) {
     const page = await readDist(path);
@@ -334,7 +363,7 @@ test('dist/works/index.html が 6 件の詳細へのリンクを projects の順
   }
 });
 
-test('各 dist/works/<name>/index.html が h1・GitHub へのリンク・前後の制作物へのリンク・使用技術・番号を持つ', async () => {
+test('各 dist/works/<name>/index.html が h1・GitHub へのリンク・前後の制作物へのリンク・使用技術を持ち、パンくずを持たない', async () => {
   const n = projects.length;
   for (const [i, { name, url, stack }] of projects.entries()) {
     const page = await readDist(`works/${name}/index.html`);
@@ -346,7 +375,8 @@ test('各 dist/works/<name>/index.html が h1・GitHub へのリンク・前後�
         `${label}のリンクがない: ${name} から ${other.name}`,
       );
     }
-    assert.ok(page.includes(`${String(i + 1).padStart(2, '0')} / 06`), `番号がない: ${name}`);
+    assert.ok(!page.includes('class="crumb"') && !page.includes('← works/'), `パンくずが残る: ${name}`);
+    assert.doesNotMatch(page, /\d{2} \/ \d{2}/, `件数が残る: ${name}`);
     assert.ok(stack.length > 0, `使用技術がない: ${name}`);
     for (const tech of stack) {
       const escaped = tech.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -383,7 +413,7 @@ test('dist/articles/index.html が各記事のリンク・題名・日付を zen
   for (const { title, url, date } of zenn) {
     const link = `href="${escapeHtml(url)}"`;
     assert.ok(page.includes(link), `リンクがない: ${url}`);
-    assert.ok(page.includes(`>${escapeHtml(title)}</span>`), `題名がない: ${title}`);
+    assert.ok(page.includes(`>${escapeHtml(title)}<span aria-hidden="true"`), `題名がない: ${title}`);
     assert.ok(page.includes(`datetime="${date}"`), `日付がない: ${date}`);
     assert.ok(page.includes(`>${ymd.format(new Date(date))}</time>`), `表示の日付がない: ${date}`);
     const index = page.indexOf(link);

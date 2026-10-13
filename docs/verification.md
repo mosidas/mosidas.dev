@@ -104,7 +104,7 @@ Workers Builds のデプロイ完了は 07:49:53 UTC である(`npx wrangler dep
 `npm run build` は `node scripts/build.mjs` を実行し、最初に `scripts/fetch-news.mjs` を呼ぶ(8.1 を参照)。
 ビルド前スクリプト `scripts/fetch-news.mjs` が、microCMS の API `news` からお知らせを取得する。
 取得は `orders=-publishedAt&limit=10` で、`publishedAt` の降順に 10 件である。取得する項目は `id`・`title`・`body`・`publishedAt` である。
-本文は sanitize-html で許可リスト方式にサニタイズする。許可リストに無いタグと属性は除き、`h1`〜`h3` は `h4` に置き換える。
+本文は sanitize-html で許可リスト方式にサニタイズする。許可リストに無いタグと属性は除き、`h1`〜`h3` は `h4` に置き換え、`a` には `target="_blank"`・`rel="noopener noreferrer"` を固定値で付ける。
 本文の画像のうち、`https://images.microcms-assets.io/` のものはビルド時に取得する。
 取得した画像は `public/news/images/<URL の sha256 の先頭 16 桁>.<拡張子>` に保存し、`src` をサイト内のパスに書き換える。
 そのため画像は microCMS でなく Cloudflare から配信される。

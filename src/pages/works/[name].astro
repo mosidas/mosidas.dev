@@ -10,12 +10,11 @@ export const getStaticPaths = (() => {
   // 前後は循環させる。最初の前は最後、最後の次は最初
   return projects.map((project, i) => ({
     params: { name: project.name },
-    props: { project, index: i, prev: projects[(i - 1 + n) % n], next: projects[(i + 1) % n] },
+    props: { project, prev: projects[(i - 1 + n) % n], next: projects[(i + 1) % n] },
   }));
 }) satisfies GetStaticPaths;
 
-const { project, index, prev, next } = Astro.props as InferGetStaticPropsType<typeof getStaticPaths>;
-const pad = (n: number) => String(n).padStart(2, '0');
+const { project, prev, next } = Astro.props as InferGetStaticPropsType<typeof getStaticPaths>;
 // node --test が projects.ts を直接読むため、画像の import は projects.ts に書けない
 const shots = import.meta.glob<{ default: ImageMetadata }>('../../assets/works/*.png', { eager: true });
 const shot = shots[`../../assets/works/${project.name}.png`]?.default;
@@ -23,10 +22,6 @@ if (!shot) throw new Error(`スクリーンショットがない: ${project.name
 ---
 
 <Base title={`${project.name} | mosida`} description={project.description}>
-  <div class="crumb">
-    <a href="/works/">← works/</a>
-    <span>{pad(index + 1)} / {pad(projects.length)}</span>
-  </div>
   <Terminal>
     <div class="detail">
       <div class="readme">
@@ -36,9 +31,9 @@ if (!shot) throw new Error(`スクリーンショットがない: ${project.name
         <ul class="stack" aria-label="使用技術">
           {project.stack.map((tech) => <li>{tech}</li>)}
         </ul>
-        <a class="open" href={project.url}
+        <a class="open" href={project.url} target="_blank" rel="noopener noreferrer"
           ><span aria-hidden="true">❯ </span>open <span class="url"
-            >{project.url.replace('https://', '')}<span aria-hidden="true">&nbsp;↗</span></span
+            >{project.url.replace('https://', '')}<span aria-hidden="true">&nbsp;↗</span><span class="visually-hidden">(新しいタブで開く)</span></span
           ></a
         >
       </div>
@@ -60,26 +55,6 @@ if (!shot) throw new Error(`スクリーンショットがない: ${project.name
 </Base>
 
 <style>
-  .crumb {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    font: 0.75rem/1.5 var(--font-mono);
-    color: var(--faint);
-    font-variant-numeric: tabular-nums;
-  }
-
-  .crumb a {
-    display: inline-flex;
-    align-items: center;
-    min-height: 44px;
-    color: var(--muted);
-  }
-
-  .crumb a:hover {
-    color: var(--accent-text);
-  }
-
   .detail {
     display: grid;
     gap: 32px;
@@ -149,6 +124,11 @@ if (!shot) throw new Error(`スクリーンショットがない: ${project.name
 
   .open:hover {
     color: var(--term-bg);
+    text-decoration: underline;
+  }
+
+  /* inline-block には親の下線が伝わらないため、.url にも引く */
+  .open:hover .url {
     text-decoration: underline;
   }
 

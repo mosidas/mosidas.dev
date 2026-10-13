@@ -55,6 +55,13 @@ test('本文から script・onerror・style・javascript: の href・iframe を�
   assert.ok(html.includes('<h4>見出し</h4>'));
 });
 
+test('本文のリンクに target="_blank" と rel="noopener noreferrer" を付け、本文の target・rel を上書きする', async () => {
+  const body = '<p><a href="https://example.com/" target="_self" rel="opener">x</a></p>';
+  respond = api([item('a', '2026-01-01T00:00:00.000Z', body)]);
+  const { news } = await fetchNews('example', 'key');
+  assert.equal(news[0].body, '<p><a href="https://example.com/" target="_blank" rel="noopener noreferrer">x</a></p>');
+});
+
 test('images.microcms-assets.io の画像を取得し、src をサイト内のパスへ書き換える', async () => {
   const src = 'https://images.microcms-assets.io/assets/x/y.png';
   respond = api([item('a', '2026-01-01T00:00:00.000Z', `<img src="${src}" alt="図" onerror="x">`)]);
