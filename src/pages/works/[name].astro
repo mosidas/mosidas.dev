@@ -31,9 +31,9 @@ if (!shot) throw new Error(`スクリーンショットがない: ${project.name
         <ul class="stack" aria-label="使用技術">
           {project.stack.map((tech) => <li>{tech}</li>)}
         </ul>
-        <a class="open" href={project.url}
+        <a class="open" href={project.url} target="_blank" rel="noopener noreferrer"
           ><span aria-hidden="true">❯ </span>open <span class="url"
-            >{project.url.replace('https://', '')}<span aria-hidden="true">&nbsp;↗</span></span
+            >{project.url.replace('https://', '')}<span aria-hidden="true">&nbsp;↗</span><span class="visually-hidden">(新しいタブで開く)</span></span
           ></a
         >
       </div>

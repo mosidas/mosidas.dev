@@ -75,7 +75,7 @@ test('dist/index.html が whoami・about.txt・stack.txt・news.log の 4 ブロ
   for (const hobby of ['カラオケ', 'ゴルフ']) {
     assert.match(html, new RegExp(`<li[^>]*>${hobby}</li>`), `趣味がない: ${hobby}`);
   }
-  assert.ok(html.includes('>読んだ本</a>'));
+  assert.ok(html.includes('>読んだ本<span aria-hidden="true"'));
   assert.ok(html.includes('>LAPRAS<'));
   for (const href of [
     'https://github.com/mosidas',
@@ -256,6 +256,26 @@ test('すべてのページのサイドバーの表題が mosida/ で、/ をア
   }
 });
 
+const EXTERNAL = /<a\b[^>]*href="https?:\/\/[^"]*"[^>]*>[\s\S]*?<\/a>/g;
+
+test('サイト外へのリンクがすべて新しいタブで開き、読み上げでそれを伝える', async () => {
+  let count = 0;
+  for (const path of await allPages()) {
+    const page = await readDist(path);
+    for (const a of page.match(EXTERNAL) ?? []) {
+      const open = a.slice(0, a.indexOf('>') + 1);
+      assert.ok(open.includes('target="_blank"'), `target がない: ${path} の ${open}`);
+      assert.ok(open.includes('rel="noopener noreferrer"'), `rel がない: ${path} の ${open}`);
+      count++;
+    }
+    // お知らせ本文の矢印と読み上げは CSS の ::after で付けるため、文言の検査から外す(本文は div を許可していない)
+    for (const a of page.replace(/<div class="news-body"[^>]*>[\s\S]*?<\/div>/g, '').match(EXTERNAL) ?? []) {
+      assert.ok(a.includes('(新しいタブで開く)'), `読み上げの文言がない: ${path} の ${a}`);
+    }
+  }
+  assert.ok(count > 0, '外部リンクが見つからない');
+});
+
 test('すべてのページが GitHub・Zenn・プライバシーポリシーへリンクする', async () => {
   for (const path of await allPages()) {
     const page = await readDist(path);
@@ -393,7 +413,7 @@ test('dist/articles/index.html が各記事のリンク・題名・日付を zen
   for (const { title, url, date } of zenn) {
     const link = `href="${escapeHtml(url)}"`;
     assert.ok(page.includes(link), `リンクがない: ${url}`);
-    assert.ok(page.includes(`>${escapeHtml(title)}</span>`), `題名がない: ${title}`);
+    assert.ok(page.includes(`>${escapeHtml(title)}<span aria-hidden="true"`), `題名がない: ${title}`);
     assert.ok(page.includes(`datetime="${date}"`), `日付がない: ${date}`);
     assert.ok(page.includes(`>${ymd.format(new Date(date))}</time>`), `表示の日付がない: ${date}`);
     const index = page.indexOf(link);
