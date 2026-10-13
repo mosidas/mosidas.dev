@@ -106,6 +106,31 @@
     }
   }
 
+  /*
+    列幅を全行で共有する。li は display: contents だとリストの役割を失うブラウザーがあるため subgrid にする。
+    お知らせ(.news-row)は固定幅の列を持つため、:has で .log-row の一覧に限る。解釈しないブラウザーは行ごとの配置のまま
+  */
+  @supports (grid-template-columns: subgrid) and selector(:has(*)) {
+    .terminal :global(.log:has(> li > .log-row)) {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      gap: 0 12px;
+    }
+
+    .terminal :global(.log > li:has(> .log-row)),
+    .terminal :global(.log-row) {
+      display: grid;
+      grid-column: 1 / -1;
+      grid-template-columns: subgrid;
+    }
+
+    @media (min-width: 48rem) {
+      .terminal :global(.log:has(> li > .log-row)) {
+        grid-template-columns: auto auto minmax(0, 1fr);
+      }
+    }
+  }
+
   /* タッチ環境では行を 44px 以上にする。マウス環境はモックの密度を保つ */
   @media (any-pointer: coarse) {
     .terminal :global(.log-row) {
