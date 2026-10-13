@@ -597,10 +597,25 @@ Web Analytics は Cookie を使わない。
 
 ### 10.3 確認
 
+2026-10-13 に本番で確かめた。
+
 | 項目 | 確かめ方 | 結果 |
 | :-- | :-- | :-- |
-| AC1: トップページを開いた後、ダッシュボードにページビューが記録される | 10.2 の 4.・5. | (マージ後に記入) |
-| AC2: プライバシーポリシーのページに Turnstile と Web Analytics の利用が記載されている | `dist/privacy/index.html` を読むテストと、10.2 の 6. | ローカルのビルドで確認した(`test/build.test.mjs` の「プライバシーポリシーのページが Turnstile と Web Analytics の利用を説明する」) |
+| AC1: トップページを開いた後、ダッシュボードにページビューが記録される | 10.2 の 4.・5. | 記録された。ダッシュボードの Web Analytics(2026-10-12 02:21 UTC 〜 10-13 02:21 UTC の範囲、Exclude bots あり)に、ページビュー 7 件(path `/` 7 件、host `mosidas.dev` 7 件、参照元 None(direct)7 件)が出た。最新の 1 件は 10-13 02:20 UTC ごろで、手動のスニペットを入れたビルドの完了(01:59:33 UTC)より後のため、ページの beacon による記録である。それ以前の件は、切り替え前の自動注入によるものである |
+| AC2: プライバシーポリシーのページに Turnstile と Web Analytics の利用が記載されている | `dist/privacy/index.html` を読むテストと、10.2 の 6. | ローカルのビルドで確認した(`test/build.test.mjs` の「プライバシーポリシーのページが Turnstile と Web Analytics の利用を説明する」)。本番の `https://mosidas.dev/privacy/` も 200 を返す |
+
+本番の配信は `curl` で確かめた(10-13 02:23 UTC)。
+`https://mosidas.dev/` と `https://mosidas.dev/privacy/` のどちらも 200 を返し、`static.cloudflareinsights.com/beacon.min.js` の `script` が 1 本ずつ入り、`data-cf-beacon` の `token` が登録した値と一致した。
+応答の `Content-Security-Policy` には `script-src` に `https://static.cloudflareinsights.com`、`connect-src` に `https://cloudflareinsights.com` が入っていた。
+ブラウザーのコンソールの CSP 違反は、ユーザーから報告が無かった。
+計測が記録されたことから、beacon の読み込みと送信は CSP を通っている。
+
+10.2 の手順は、次の点が想定と違った。
+
+| 手順 | 実際 |
+| :-- | :-- |
+| 1. サイトを追加する | サイト `mosidas.dev` は、自動注入(EU 除外)で既に存在した。「Enable with JS Snippet installation」に切り替えて自動注入を止め、表示された token を 2. で登録した |
+| 2. と 3. の順序 | 3.(PR #15 のマージ、01:2x UTC、マージコミット `6eff776`)を 2. より先に行った。`main` のビルドは「PUBLIC_WEB_ANALYTICS_TOKEN が未設定」で失敗し、`build.mjs` が 01:30:03 UTC に Issue #16「ビルドに失敗した(build)」を作った。ビルドの失敗は 01:30:08 UTC に確定し、前回の配信が続いた。10.1 の表の「`WORKERS_CI` あり」の動作のとおりである。token の登録と PR #14(マージコミット `1c8aaeb`)のマージの後、`main` のビルドは 01:59:33 UTC に成功した。Issue #16 は閉じた |
 
 ### 10.4 注意点
 
