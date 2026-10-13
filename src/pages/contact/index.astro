@@ -23,33 +23,27 @@ if (!siteKey) {
 
 <Base title="問い合わせ | mosida" description="mosida への問い合わせのフォーム。">
   <h1>問い合わせ</h1>
-  <p class="lead">入力内容はサーバーに保存せず、本人宛のメールとして送る。</p>
   <form method="post" action="/api/contact">
     <div class="field half">
-      <label for="name"><span aria-hidden="true">$</span> name</label>
+      <label for="name"><span aria-hidden="true">❯</span> name</label>
       <input id="name" name="name" type="text" autocomplete="name" maxlength="100" required />
     </div>
     <div class="field half">
-      <label for="email"><span aria-hidden="true">$</span> email</label>
+      <label for="email"><span aria-hidden="true">❯</span> email</label>
       <input id="email" name="email" type="email" autocomplete="email" maxlength="254" required />
     </div>
     <div class="field">
-      <label for="message"><span aria-hidden="true">$</span> message</label>
+      <label for="message"><span aria-hidden="true">❯</span> message</label>
       <textarea id="message" name="message" rows="8" maxlength="5000" required></textarea>
     </div>
     <div class="cf-turnstile" data-sitekey={siteKey} data-language="ja"></div>
     <noscript><p class="note">送信には JavaScript が必要である。ブラウザーで JavaScript を有効にしてほしい。</p></noscript>
-    <button type="submit"><span aria-hidden="true">$</span> send <span aria-hidden="true">↵</span></button>
+    <button type="submit"><span aria-hidden="true">❯</span> send <span aria-hidden="true">↵</span></button>
   </form>
-  <p class="back"><a href="/">トップページへ戻る</a></p>
   <script is:inline src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
 </Base>
 
 <style>
-  .lead {
-    color: var(--muted);
-  }
-
   form {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
@@ -108,10 +102,6 @@ if (!siteKey) {
   .note {
     margin: 0;
     color: var(--muted);
-  }
-
-  .back {
-    margin: 48px 0 0;
   }
 
   /* Turnstile の iframe は幅 300px 固定のため、枠と padding は幅に余裕がある 48rem 以上だけに付ける */

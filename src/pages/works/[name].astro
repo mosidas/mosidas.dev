@@ -25,14 +25,14 @@ const pad = (n: number) => String(n).padStart(2, '0');
   <Terminal>
     <div class="detail">
       <div class="readme">
-        <p class="cmd" aria-hidden="true">$ cat README.md</p>
+        <p class="cmd" aria-hidden="true">❯ cat README.md</p>
         <h1>{project.name}</h1>
         <p class="desc">{project.description}</p>
         <ul class="stack" aria-label="使用技術">
           {project.stack.map((tech) => <li>{tech}</li>)}
         </ul>
         <a class="open" href={project.url}
-          ><span aria-hidden="true">$ </span>open <span class="url"
+          ><span aria-hidden="true">❯ </span>open <span class="url"
             >{project.url.replace('https://', '')}<span aria-hidden="true">&nbsp;↗</span></span
           ></a
         >

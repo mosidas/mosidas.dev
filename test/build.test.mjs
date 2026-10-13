@@ -249,6 +249,31 @@ test('dist の HTML に名前としての mosidas が残っていない', async 
   }
 });
 
+test('各制作物の description が句点 1 つで終わる 1 文である', () => {
+  for (const { name, description } of projects) {
+    assert.ok(description.endsWith('。'), `句点で終わらない: ${name}`);
+    assert.equal(description.split('。').length, 2, `1 文でない: ${name}`);
+  }
+});
+
+test('すべてのページで表示用のプロンプト記号が ❯ で、$ が残っていない', async () => {
+  for (const path of await allPages()) {
+    const page = await readDist(path);
+    assert.doesNotMatch(page, /<span aria-hidden="true"[^>]*>\$/, `$ が残る: ${path}`);
+    assert.ok(!page.includes('$ cat'), `$ cat が残る: ${path}`);
+  }
+  assert.match(html, /<span aria-hidden="true"[^>]*>❯<\/span> top/);
+});
+
+test('問い合わせの補足文とトップへ戻るリンクがどのページにも無い', async () => {
+  for (const path of await allPages()) {
+    const page = await readDist(path);
+    for (const word of ['保存せず', 'トップページへ戻る']) {
+      assert.ok(!page.includes(word), `含む: ${path} の ${word}`);
+    }
+  }
+});
+
 test('すべてのページが外部フォント・インラインの script・style を含まない', async () => {
   for (const path of await allPages()) {
     const page = await readDist(path);

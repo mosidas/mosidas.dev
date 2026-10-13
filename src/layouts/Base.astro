@@ -41,7 +41,7 @@ const currentHref = '/' + (section && section + '/');
               links.map(([label, href]) => (
                 <li>
                   <a href={href} aria-current={href === currentHref ? 'page' : undefined}>
-                    <span aria-hidden="true">$</span> {label}
+                    <span aria-hidden="true">❯</span> {label}
                   </a>
                 </li>
               ))
@@ -95,10 +95,10 @@ const currentHref = '/' + (section && section + '/');
     /*
       コントラスト比(panel / card / term-bg / hover の順)
       ライト: text 10.04 / 10.30 / 9.87 / 9.11、muted(= term-sub) 6.10 / 6.26 / 5.99 / 5.53、faint 5.11 / 5.24 / 5.02 / 4.63、
-        accent-text 5.08 / 5.21 / 4.99 / 4.60、accent2 5.09 / 5.23 / 5.01 / 4.62、反転のナビ: 文字 10.04・$ 4.65、塗りのボタン 9.87
+        accent-text 5.08 / 5.21 / 4.99 / 4.60、accent2 5.09 / 5.23 / 5.01 / 4.62、反転のナビ: 文字 10.04・❯ 4.65、塗りのボタン 9.87
       ダーク: text 14.53 / 13.68 / 14.75 / 13.68、muted(= term-fg) 10.12 / 9.53 / 10.27 / 9.53、faint 4.93 / 4.64 / 5.00 / 4.64、
         accent 9.98 / 9.39 / 10.13 / 9.39、accent2 11.54 / 10.87 / 11.72 / 10.87、term-sub 7.50 / 7.06 / 7.61 / 7.06、
-        反転のナビ: 文字 14.53・$ 4.65、塗りのボタン 10.27
+        反転のナビ: 文字 14.53・❯ 4.65、塗りのボタン 10.27
       入力欄の枠線(--faint、非テキストの 3:1): ライト 5.11 / 5.24、ダーク 4.93 / 4.64
       ダークの装飾の枠線(--line、term-bg / panel): 1.92 / 1.89。#1f2430 では窓の枠が背景に溶けたため上げた
       モックの値は文字の 4.5:1 を満たさないため調整した: ライトの #8A9199 は 3.11、#FA8D3E は 2.29、#A37ACC は 3.29、ダークの #6C7380 は 3.99
@@ -116,7 +116,7 @@ const currentHref = '/' + (section && section + '/');
     --accent: #fa8d3e;
     --accent-text: #b44e05;
     --accent2: #8853bd;
-    --active-dollar: #bfa3dc;
+    --active-prompt: #bfa3dc;
     --term-bg: #fafafa;
     --term-fg: #3b4149;
     --term-sub: #5c6166;
@@ -143,7 +143,7 @@ const currentHref = '/' + (section && section + '/');
       --accent: #e6b450;
       --accent-text: #e6b450;
       --accent2: #aad94c;
-      --active-dollar: #4f6b17;
+      --active-prompt: #4f6b17;
       --term-bg: #0b0e14;
       --term-fg: #bfbdb6;
       --term-sub: #9da3ad;
@@ -239,7 +239,7 @@ const currentHref = '/' + (section && section + '/');
   }
 
   nav a[aria-current='page'] span {
-    color: var(--active-dollar);
+    color: var(--active-prompt);
   }
 
   main {
