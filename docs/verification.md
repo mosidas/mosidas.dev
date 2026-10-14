@@ -183,7 +183,7 @@ microCMS の Hobby プランで、Deploy Hook の URL をカスタム通知の W
 9. メールを送信する。送信に失敗したら 502 を返す。成功したら 303 で `/contact/sent/` へ移す。
 
 405 を除き、失敗したときは、静的な結果ページ(`/contact/{invalid,rejected,limited,failed}/`)に状態コードを付けて返す。
-405 は本文の無い応答である。
+405 は `/405/` のエラーページを `Allow: POST` 付きで返す。
 
 メール送信には、Cloudflare Email Routing の `send_email` バインディングを使う。設定は `wrangler.jsonc` の `send_email: [{ name: "EMAIL" }]` である。
 送信先は、Email Routing で検証済みの宛先(Destination addresses)に限られる。
@@ -620,7 +620,7 @@ Web Analytics は Cookie を使わない。
 ### 10.4 注意点
 
 - JS を実行しないクライアントとボットは数えない。
-- 4xx の件数と、workers.dev からの転送の件数は出ない。Worker の例外は Workers のメトリクスで見る。
+- 4xx の件数と、workers.dev からの転送の件数は出ない。Worker の fetch の例外は捕捉して 500 のページを返し、Workers Logs に `msg: 要求の処理中に例外が発生した` の error ログを 1 行残す。例外の件数はこのログで見る。
 - token はページの HTML に出る公開値で、シークレットではない。PRD に従い、ビルド変数に置く。
 - token をシェルの環境変数で渡したとき(`PUBLIC_WEB_ANALYTICS_TOKEN=… npm test`)も `npm test` は通る。テストが token の有無で beacon の本数の期待値を切り替えるためである。`.env` に書くと、ビルドは beacon を入れるが `node --test` は `.env` を読まないため、期待値が 0 本になりテストが失敗する。
 
