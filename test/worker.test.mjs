@@ -445,6 +445,13 @@ test('wrangler.jsonc は vars を持たず、microCMS・GitHub の値を Worker 
   assert.doesNotMatch(text, /vars|microcms|github/i);
 });
 
+test('wrangler.jsonc は not_found_handling を 404-page にし、html_handling を設定しない', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const text = await readFile(new URL('../wrangler.jsonc', import.meta.url), 'utf8');
+  assert.match(text, /"not_found_handling":\s*"404-page"/);
+  assert.ok(!text.includes('html_handling'));
+});
+
 const HOOK = 'https://api.cloudflare.com/client/v4/workers/builds/deploy_hooks/hook-secret-123';
 
 // Deploy Hook の fetch とログを捕まえて scheduled を 1 回走らせ、ログが 1 行で URL を含まないことを確かめる
