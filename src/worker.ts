@@ -149,7 +149,7 @@ async function handleContact(request: Request, env: Env): Promise<Response> {
   const id = request.headers.get('cf-ray') ?? crypto.randomUUID();
   // Accept は返す形式を選ぶだけで、応答に書き戻さない
   const json = /\bapplication\/json\b/i.test(request.headers.get('accept') ?? '');
-  const r = await processContact(request, env, id, json);
+  const r = await processContact(request, env, json);
   const failure = r.outcome === 'sent' ? undefined : FAILURES[r.outcome];
   log({
     level: failure?.level ?? 'info',
@@ -169,7 +169,7 @@ async function handleContact(request: Request, env: Env): Promise<Response> {
   return r.response;
 }
 
-async function processContact(request: Request, env: Env, id: string, json: boolean): Promise<Result> {
+async function processContact(request: Request, env: Env, json: boolean): Promise<Result> {
   const fail = async (outcome: Outcome, page: keyof typeof RESULT_PAGES, status: number, fields?: Field[]) => ({
     outcome,
     response: json
