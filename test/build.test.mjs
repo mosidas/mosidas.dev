@@ -191,6 +191,21 @@ test('プライバシーポリシーのページが Turnstile と Web Analytics 
   assert.ok(privacy.includes('第三者には提供しません。'));
 });
 
+// ページが読み込む /_astro/ の CSS をつなげて返す
+const pageCss = async (page) =>
+  (await Promise.all([...page.matchAll(/<link rel="stylesheet" href="\/(_astro\/[^"]+\.css)"/g)].map((m) => readDist(m[1])))).join('\n');
+
+test('プライバシーポリシーの制定日が本文から余白で離れる', async () => {
+  assert.match(privacy, /<p class="enacted"[^>]*>2026 年 10 月 13 日 制定<\/p>/);
+  const css = await pageCss(privacy);
+  const rule = css.match(/p\[(data-astro-cid-[a-z0-9]+)\]\.enacted\{margin-top:24px\}/);
+  assert.ok(rule, 'margin-top の規則がない');
+  // 詳細度が p:not(.prompt-line) の margin: 0 と同じため、後ろに無いと効かない
+  const reset = css.indexOf(`p[${rule[1]}]:not(.prompt-line){`);
+  assert.ok(reset >= 0, 'margin: 0 の規則がない');
+  assert.ok(rule.index > reset, 'margin: 0 の規則より前にある');
+});
+
 test('トップと問い合わせのページがフッターからプライバシーポリシーへリンクする', () => {
   assert.ok(html.includes('href="/privacy/"'));
   assert.ok(contact.includes('href="/privacy/"'));
@@ -308,6 +323,13 @@ test('すべてのページで表示用のプロンプト記号が ❯ で、$ �
   assert.match(html, /<span aria-hidden="true"[^>]*>❯<\/span> top/);
 });
 
+test('表示の文言が「問い合わせ」を「お問い合わせ」で統一する', async () => {
+  assert.match(contact, /<h1[^>]*>お問い合わせ<\/h1>/);
+  for (const path of await allPages()) {
+    assert.doesNotMatch(await readDist(path), /(?<!お)問い合わせ/, `「お」の無い表記が残る: ${path}`);
+  }
+});
+
 test('問い合わせの補足文とトップへ戻るリンクがどのページにも無い', async () => {
   for (const path of await allPages()) {
     const page = await readDist(path);
@@ -340,6 +362,14 @@ test('フォントを自前で配信し、CSS がそれを参照する', async (
   for (const ref of refs) assert.ok(files.includes(ref), `参照先がない: ${ref}`);
   for (const family of ["font-family: 'M PLUS 1';", "font-family: 'M PLUS 1 Code';"]) {
     assert.ok(css.includes(family), `書体がない: ${family}`);
+  }
+});
+
+test('等幅の箇所の ↗ をサンセリフで表示する', async () => {
+  const work = await readDist(`works/${projects[0].name}/index.html`);
+  for (const [name, page] of [['stack', html], ['url', work]]) {
+    const rule = new RegExp(`\\.${name}\\[data-astro-cid-[a-z0-9]+\\] span\\[data-astro-cid-[a-z0-9]+\\]\\[aria-hidden=["']?true["']?\\]\\{font-family:var\\(--font-sans\\)\\}`);
+    assert.match(await pageCss(page), rule, `規則がない: .${name}`);
   }
 });
 

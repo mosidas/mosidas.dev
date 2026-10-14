@@ -122,6 +122,11 @@ if (!shot) throw new Error(`スクリーンショットがない: ${project.name
     display: inline-block;
   }
 
+  /* woff2 に ↗ が無いため、サンセリフの箇所と同じ退避先で描く */
+  .url span[aria-hidden='true'] {
+    font-family: var(--font-sans);
+  }
+
   .open:hover {
     color: var(--term-bg);
     text-decoration: underline;
