@@ -18,7 +18,7 @@ import Terminal from '../../components/Terminal.astro';
     <h2>ポリシーの変更</h2>
     <p>本ポリシーは、必要に応じて変更することがあります。</p>
 
-    <p>2026 年 10 月 13 日 制定</p>
+    <p class="enacted">2026 年 10 月 13 日 制定</p>
     <p>運営者: mosida</p>
     <p class="prompt-line cursor-line" aria-hidden="true"><span class="prompt">❯</span> <span class="cursor"></span></p>
   </Terminal>
@@ -51,5 +51,10 @@ import Terminal from '../../components/Terminal.astro';
     font: 0.875rem/1.9 var(--font-sans);
     color: var(--term-sub);
     text-wrap: pretty;
+  }
+
+  /* 詳細度が p:not(.prompt-line) と同じため、margin: 0 より後ろに書く */
+  p.enacted {
+    margin-top: 24px;
   }
 </style>

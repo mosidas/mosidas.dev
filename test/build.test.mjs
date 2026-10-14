@@ -191,6 +191,19 @@ test('プライバシーポリシーのページが Turnstile と Web Analytics 
   assert.ok(privacy.includes('第三者には提供しません。'));
 });
 
+// ページが読み込む /_astro/ の CSS をつなげて返す
+const pageCss = async (page) =>
+  (await Promise.all([...page.matchAll(/<link rel="stylesheet" href="\/(_astro\/[^"]+\.css)"/g)].map((m) => readDist(m[1])))).join('\n');
+
+test('プライバシーポリシーの制定日が本文から余白で離れる', async () => {
+  assert.match(privacy, /<p class="enacted"[^>]*>2026 年 10 月 13 日 制定<\/p>/);
+  const css = await pageCss(privacy);
+  const rule = css.search(/p\[data-astro-cid-[a-z0-9]+\]\.enacted\{margin-top:24px\}/);
+  assert.ok(rule >= 0, 'margin-top の規則がない');
+  // 詳細度が p:not(.prompt-line) の margin: 0 と同じため、後ろに無いと効かない
+  assert.ok(rule > css.indexOf(':not(.prompt-line){'), 'margin: 0 の規則より前にある');
+});
+
 test('トップと問い合わせのページがフッターからプライバシーポリシーへリンクする', () => {
   assert.ok(html.includes('href="/privacy/"'));
   assert.ok(contact.includes('href="/privacy/"'));
