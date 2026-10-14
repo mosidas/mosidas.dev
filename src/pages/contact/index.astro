@@ -26,7 +26,7 @@ if (!siteKey) {
   <h1>お問い合わせ</h1>
   {
     (Object.keys(RESULTS) as ResultName[]).map((name) => {
-      const { heading, body, missing, requestId, inline } = RESULTS[name];
+      const { heading, body, missing, inline } = RESULTS[name];
       return (
         <div class="notice" data-result={name} tabindex="-1" hidden>
           <h2>{heading}</h2>
@@ -35,12 +35,6 @@ if (!siteKey) {
             <p>
               {missing}
               <span data-slot="missing" />
-            </p>
-          )}
-          {requestId && (
-            <p data-request-id-line>
-              {requestId}
-              <span data-slot="request-id" />
             </p>
           )}
           {inline && <p>{inline}</p>}
@@ -73,16 +67,12 @@ if (!siteKey) {
     const form = document.querySelector<HTMLFormElement>('form[action="/api/contact"]');
     const NAMES = { sent: true, invalid: true, rejected: true, limited: true, failed: true } satisfies Record<ResultName, true>;
 
-    const show = (name: ResultName, fields: Field[] = [], requestId = '') => {
+    const show = (name: ResultName, fields: Field[] = []) => {
       for (const el of document.querySelectorAll<HTMLElement>('.notice')) el.hidden = true;
       const notice = document.querySelector<HTMLElement>(`.notice[data-result="${name}"]`);
       if (!notice) return;
       const missing = notice.querySelector('[data-slot="missing"]');
       if (missing) missing.textContent = missingText(fields);
-      const id = notice.querySelector('[data-slot="request-id"]');
-      if (id) id.textContent = requestId;
-      const idLine = notice.querySelector<HTMLElement>('[data-request-id-line]');
-      if (idLine) idLine.hidden = requestId === '';
       notice.hidden = false;
       notice.focus();
     };
@@ -102,7 +92,6 @@ if (!siteKey) {
       if (button) button.disabled = true;
       let result: ResultName = 'failed';
       let fields: Field[] = [];
-      let requestId = '';
       try {
         const res = await fetch(form.action, {
           method: 'POST',
@@ -116,10 +105,9 @@ if (!siteKey) {
           const value = body as Record<string, unknown>;
           if (typeof value.result === 'string' && Object.hasOwn(NAMES, value.result)) result = value.result as ResultName;
           if (Array.isArray(value.fields)) fields = value.fields.filter((f): f is Field => typeof f === 'string' && Object.hasOwn(LABELS, f));
-          if (typeof value.requestId === 'string' && /^[\w-]{1,64}$/.test(value.requestId)) requestId = value.requestId;
         }
       } catch {
-        // fetch の例外(30 秒の時間切れを含む)と JSON でない本文は、初期値の failed と空の識別番号のまま表示する
+        // fetch の例外(30 秒の時間切れを含む)と JSON でない本文は、初期値の failed のまま表示する
       } finally {
         if (button) button.disabled = false;
       }
@@ -134,7 +122,7 @@ if (!siteKey) {
         const field = form.elements.namedItem(f);
         if (field instanceof HTMLElement) field.setAttribute('aria-invalid', 'true');
       }
-      show(result, fields, requestId);
+      show(result, fields);
     });
   </script>
 </Base>

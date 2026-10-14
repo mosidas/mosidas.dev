@@ -149,17 +149,16 @@ test('問い合わせのページの script は Turnstile と送信用の 2 本�
 });
 
 test('問い合わせのページが 5 つの結果のブロックを hidden で持ち、置換前の印を含まない', () => {
-  for (const [name, { heading, missing, requestId, page, inline }] of Object.entries(MESSAGES)) {
+  for (const [name, { heading, missing, page, inline }] of Object.entries(MESSAGES)) {
     const block = contact.match(new RegExp(`<div[^>]*data-result="${name}"[^>]*>([\\s\\S]*?)</div>`));
     assert.ok(block, `ブロックがない: ${name}`);
     assert.match(block[0], /^<div[^>]*\shidden[\s>]/, `hidden でない: ${name}`);
     assert.match(block[1], new RegExp(`<h2[^>]*>${heading}</h2>`), `見出しがない: ${name}`);
     if (missing) assert.ok(block[1].includes('data-slot="missing"'), `未入力の項目の枠がない: ${name}`);
-    if (requestId) assert.ok(block[1].includes('data-slot="request-id"'), `識別番号の枠がない: ${name}`);
     if (inline) assert.ok(block[1].includes(`>${inline}</p>`), `inline の文がない: ${name}`);
     if (page) assert.ok(!contact.includes(page), `page の文を含む: ${name}`);
   }
-  for (const mark of ['%MISSING%', '%REQUEST_ID%']) assert.ok(!contact.includes(mark), `印を含む: ${mark}`);
+  assert.ok(!contact.includes('%MISSING%'), '印を含む: %MISSING%');
 });
 
 test('結果ページが 5 つあり、noindex が付き、Worker が置き換える印を含む', async () => {
@@ -169,16 +168,14 @@ test('結果ページが 5 つあり、noindex が付き、Worker が置き換�
     assert.ok(page.includes('href="/contact/"'), `戻るリンクがない: ${name}`);
   }
   assert.ok(pages.invalid.includes('%MISSING%'));
-  assert.ok(pages.failed.includes('%REQUEST_ID%'));
 });
 
 test('結果ページの h1 と本文が RESULTS の文言どおりで、inline の文を含まない', async () => {
-  for (const [name, { heading, body, missing, requestId, page, inline }] of Object.entries(MESSAGES)) {
+  for (const [name, { heading, body, missing, page, inline }] of Object.entries(MESSAGES)) {
     const html = await readDist(`contact/${name}/index.html`);
     assert.ok(html.includes(`>${heading}</h1>`), `h1 が違う: ${name}`);
     for (const line of body) assert.ok(html.includes(`>${line}</p>`), `本文がない: ${name} の ${line}`);
     if (missing) assert.ok(html.includes(`>${missing}%MISSING%</p>`), `未入力の項目の文がない: ${name}`);
-    if (requestId) assert.ok(html.includes(`>${requestId}%REQUEST_ID%</p>`), `識別番号の文がない: ${name}`);
     if (page) assert.ok(html.includes(`>${page}</p>`), `案内の文がない: ${name}`);
     if (inline) assert.ok(!html.includes(inline), `inline の文を含む: ${name}`);
   }

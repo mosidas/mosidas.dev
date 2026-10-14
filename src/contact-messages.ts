@@ -10,12 +10,11 @@ type Message = {
   heading: string;
   body: string[];
   missing?: string;
-  requestId?: string;
   page?: string;
   inline?: string;
 };
 
-// 表示の順序は body → missing → requestId → page(入力画面では page の代わりに inline)
+// 表示の順序は body → missing → page(入力画面では page の代わりに inline)
 export const RESULTS: Record<ResultName, Message> = {
   sent: {
     heading: '送信しました',
@@ -35,9 +34,5 @@ export const RESULTS: Record<ResultName, Message> = {
     inline: '送信ボタンの上の確認をやり直してから、再度送信してください。',
   },
   limited: { heading: '送信回数の上限に達しました', body: ['1 分ほど待ってから、再度送信してください。'] },
-  failed: {
-    heading: '送信に失敗しました',
-    body: ['送信できませんでした。入力内容は保存されていないため、時間をおいて再度送信してください。'],
-    requestId: '識別番号: ',
-  },
+  failed: { heading: '送信に失敗しました', body: ['時間をおいて、再度送信してください。'] },
 };

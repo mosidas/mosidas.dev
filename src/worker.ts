@@ -145,9 +145,8 @@ export class ContactRateLimiter {
 // shortcut: 問い合わせのメトリクスは Workers Logs の集計で代える, 件数が増えたら Analytics Engine へ移す
 async function handleContact(request: Request, env: Env): Promise<Response> {
   const started = Date.now();
-  const ray = request.headers.get('cf-ray');
-  // 相関 ID は結果ページの HTML に埋め込むため、形を確かめてから使う
-  const id = ray && /^[\w-]{1,64}$/.test(ray) ? ray : crypto.randomUUID();
+  // 相関 ID はログにだけ載せる。利用者には表示しない
+  const id = request.headers.get('cf-ray') ?? crypto.randomUUID();
   // Accept は返す形式を選ぶだけで、応答に書き戻さない
   const json = /\bapplication\/json\b/i.test(request.headers.get('accept') ?? '');
   const r = await processContact(request, env, id, json);
@@ -174,8 +173,8 @@ async function processContact(request: Request, env: Env, id: string, json: bool
   const fail = async (outcome: Outcome, page: keyof typeof RESULT_PAGES, status: number, fields?: Field[]) => ({
     outcome,
     response: json
-      ? Response.json({ result: page, requestId: id, ...(fields && { fields }) }, { status })
-      : await resultPage(env, RESULT_PAGES[page], status, { MISSING: fields ? missingText(fields) : '', REQUEST_ID: id }),
+      ? Response.json({ result: page, ...(fields && { fields }) }, { status })
+      : await resultPage(env, RESULT_PAGES[page], status, fields ? missingText(fields) : ''),
   });
 
   if (request.method !== 'POST') {
@@ -239,7 +238,7 @@ async function processContact(request: Request, env: Env, id: string, json: bool
     return { ...r, errorType: typeof code === 'string' ? code : undefined };
   }
   const response = json
-    ? Response.json({ result: 'sent', requestId: id })
+    ? Response.json({ result: 'sent' })
     : new Response(null, { status: 303, headers: { Location: ORIGIN + '/contact/sent/?submitted=1' } });
   return { outcome: 'sent', response };
 }
@@ -261,15 +260,10 @@ function validate(
   return fields.length ? { ok: false, fields } : { ok: true, value };
 }
 
-// 利用者の入力は書き戻さない。差し込むのは固定のラベルと相関 ID だけ
-async function resultPage(
-  env: Env,
-  name: string,
-  status: number,
-  slots: { MISSING: string; REQUEST_ID: string },
-): Promise<Response> {
+// 利用者の入力は書き戻さない。差し込むのは固定のラベルだけ
+async function resultPage(env: Env, name: string, status: number, missing: string): Promise<Response> {
   const asset = await env.ASSETS.fetch(new Request(ORIGIN + '/contact/' + name + '/'));
-  const body = (await asset.text()).replaceAll('%MISSING%', slots.MISSING).replaceAll('%REQUEST_ID%', slots.REQUEST_ID);
+  const body = (await asset.text()).replaceAll('%MISSING%', missing);
   // CSP などはアセットから引き継ぎ、置換で長さが変わる Content-Length とアセットのキャッシュ状態を示す cf-cache-status を落とす
   const headers = new Headers(asset.headers);
   headers.delete('content-length');

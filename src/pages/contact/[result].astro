@@ -3,18 +3,17 @@ import type { GetStaticPaths, InferGetStaticPropsType } from 'astro';
 import Base from '../../layouts/Base.astro';
 import { RESULTS } from '../../contact-messages.ts';
 
-// %MISSING% と %REQUEST_ID% は Worker(src/worker.ts)が応答のときに置き換える
+// %MISSING% は Worker(src/worker.ts)が応答のときに置き換える
 export const getStaticPaths = (() =>
   Object.entries(RESULTS).map(([result, props]) => ({ params: { result }, props }))) satisfies GetStaticPaths;
 
-const { heading, body, missing, requestId, page } = Astro.props as InferGetStaticPropsType<typeof getStaticPaths>;
+const { heading, body, missing, page } = Astro.props as InferGetStaticPropsType<typeof getStaticPaths>;
 ---
 
 <Base title={`${heading} | mosida`} description="お問い合わせの送信結果。" noindex>
   <h1>{heading}</h1>
   {body.map((text) => <p>{text}</p>)}
   {missing && <p>{missing}%MISSING%</p>}
-  {requestId && <p>{requestId}%REQUEST_ID%</p>}
   {page && <p>{page}</p>}
   <p class="back"><a href="/contact/">お問い合わせのページへ戻る</a></p>
 </Base>
