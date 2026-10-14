@@ -54,6 +54,10 @@ export default {
       return Response.redirect(ORIGIN + url.pathname + url.search, 301);
     }
     if (url.pathname === '/api/contact') return handleContact(request, env);
+    // 結果ページは Worker の置換を経たときか、JS 無しの送信完了で移ったときだけ見せる
+    // shortcut: 結果ページの直接表示の転送はログ・メトリクスなし, 件数を知る必要が出たら計装する
+    const result = url.pathname.match(/^\/contact\/(sent|invalid|rejected|limited|failed)\/(?:index\.html)?$/)?.[1];
+    if (result && !(result === 'sent' && url.searchParams.has('submitted'))) return Response.redirect(ORIGIN + '/contact/', 303);
     return env.ASSETS.fetch(request);
   },
 
@@ -144,7 +148,9 @@ async function handleContact(request: Request, env: Env): Promise<Response> {
   const ray = request.headers.get('cf-ray');
   // 相関 ID は結果ページの HTML に埋め込むため、形を確かめてから使う
   const id = ray && /^[\w-]{1,64}$/.test(ray) ? ray : crypto.randomUUID();
-  const r = await processContact(request, env, id);
+  // Accept は返す形式を選ぶだけで、応答に書き戻さない
+  const json = /\bapplication\/json\b/i.test(request.headers.get('accept') ?? '');
+  const r = await processContact(request, env, id, json);
   const failure = r.outcome === 'sent' ? undefined : FAILURES[r.outcome];
   log({
     level: failure?.level ?? 'info',
@@ -152,6 +158,7 @@ async function handleContact(request: Request, env: Env): Promise<Response> {
     'app.request.id': id,
     'http.response.status_code': r.response.status,
     'app.contact.outcome': r.outcome,
+    'app.contact.response_format': json ? 'json' : 'html',
     duration_ms: Date.now() - started,
     ...(failure && {
       'error.type': r.errorType ?? r.outcome,
@@ -163,10 +170,12 @@ async function handleContact(request: Request, env: Env): Promise<Response> {
   return r.response;
 }
 
-async function processContact(request: Request, env: Env, id: string): Promise<Result> {
-  const fail = async (outcome: Outcome, page: keyof typeof RESULT_PAGES, status: number, missing = '') => ({
+async function processContact(request: Request, env: Env, id: string, json: boolean): Promise<Result> {
+  const fail = async (outcome: Outcome, page: keyof typeof RESULT_PAGES, status: number, fields?: Field[]) => ({
     outcome,
-    response: await resultPage(env, RESULT_PAGES[page], status, { MISSING: missing, REQUEST_ID: id }),
+    response: json
+      ? Response.json({ result: page, requestId: id, ...(fields && { fields }) }, { status })
+      : await resultPage(env, RESULT_PAGES[page], status, { MISSING: fields ? missingText(fields) : '', REQUEST_ID: id }),
   });
 
   if (request.method !== 'POST') {
@@ -197,7 +206,7 @@ async function processContact(request: Request, env: Env, id: string): Promise<R
 
   const checked = validate(params);
   if (!checked.ok) {
-    const r = await fail('invalid_fields', 'invalid', 400, missingText(checked.fields));
+    const r = await fail('invalid_fields', 'invalid', 400, checked.fields);
     return { ...r, invalidFields: checked.fields };
   }
 
@@ -229,7 +238,10 @@ async function processContact(request: Request, env: Env, id: string): Promise<R
     const r = await fail('email_send_failed', 'failed', 502);
     return { ...r, errorType: typeof code === 'string' ? code : undefined };
   }
-  return { outcome: 'sent', response: new Response(null, { status: 303, headers: { Location: ORIGIN + '/contact/sent/' } }) };
+  const response = json
+    ? Response.json({ result: 'sent', requestId: id })
+    : new Response(null, { status: 303, headers: { Location: ORIGIN + '/contact/sent/?submitted=1' } });
+  return { outcome: 'sent', response };
 }
 
 function validate(

@@ -113,7 +113,7 @@ test('正常な送信は 303 で送信完了ページへ移り、メールを 1 
   const env = contactEnv();
   const { res, log, stream, verifyCalls } = await run(t, env, contactRequest());
   assert.equal(res.status, 303);
-  assert.equal(res.headers.get('location'), 'https://mosidas.dev/contact/sent/');
+  assert.equal(res.headers.get('location'), 'https://mosidas.dev/contact/sent/?submitted=1');
   assert.equal(env.sent.length, 1);
   assert.equal(env.sent[0].to, 'owner@example.com');
   assert.equal(env.sent[0].from, 'contact@mosidas.dev');
@@ -130,8 +130,79 @@ test('正常な送信は 303 で送信完了ページへ移り、メールを 1 
   assert.equal(log['app.contact.outcome'], 'sent');
   assert.equal(log['app.request.id'], 'ray-test-1');
   assert.equal(log['http.response.status_code'], 303);
+  assert.equal(log['app.contact.response_format'], 'html');
   assert.equal(typeof log.duration_ms, 'number');
 });
+
+const JSON_ACCEPT = { accept: 'application/json' };
+
+test('Accept が JSON の正常な送信は 200 で結果を JSON で返し、メールを 1 通送る', async (t) => {
+  const env = contactEnv();
+  const { res, log, stream } = await run(t, env, contactRequest(FORM, { headers: JSON_ACCEPT }));
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get('content-type'), /^application\/json/);
+  assert.deepEqual(await res.json(), { result: 'sent', requestId: 'ray-test-1' });
+  assert.equal(env.sent.length, 1);
+  assert.equal(stream, 'log');
+  assert.equal(log.level, 'info');
+  assert.equal(log['app.contact.outcome'], 'sent');
+  assert.equal(log['http.response.status_code'], 200);
+  assert.equal(log['app.contact.response_format'], 'json');
+  assert.equal(log['app.request.id'], 'ray-test-1');
+  assert.equal(typeof log.duration_ms, 'number');
+});
+
+for (const [label, form, headers, envOpts, status, body, outcome] of [
+  ['名前と本文が空白', { ...FORM, name: ' ', message: '\n\t' }, {}, {}, 400, { result: 'invalid', fields: ['name', 'message'] }, 'invalid_fields'],
+  ['トークンなし', { ...FORM, 'cf-turnstile-response': '' }, {}, {}, 403, { result: 'rejected' }, 'turnstile_missing'],
+  ['Origin が別', FORM, { origin: 'https://evil.example' }, {}, 403, { result: 'rejected' }, 'bad_origin'],
+  ['DO が 429', FORM, {}, { limiter: async () => new Response(null, { status: 429 }) }, 429, { result: 'limited' }, 'rate_limited'],
+  ['send が例外', FORM, {}, { send: async () => { throw new Error('送れない'); } }, 502, { result: 'failed' }, 'email_send_failed'],
+]) {
+  test(`Accept が JSON で${label}なら ${status} で結果を JSON で返す`, async (t) => {
+    const env = contactEnv(envOpts);
+    const { res, log } = await run(t, env, contactRequest(form, { headers: { ...JSON_ACCEPT, ...headers } }));
+    assert.equal(res.status, status);
+    const text = await res.text();
+    for (const s of SECRETS) assert.ok(!text.includes(s), `本文に ${s} が含まれる`);
+    assert.deepEqual(JSON.parse(text), { requestId: 'ray-test-1', ...body });
+    assert.equal(env.sent.length, outcome === 'email_send_failed' ? 1 : 0);
+    assert.equal(log['app.contact.outcome'], outcome);
+    assert.equal(log['app.contact.response_format'], 'json');
+  });
+}
+
+test('ブラウザーの Accept で不適合な送信は HTML の結果ページを返す', async (t) => {
+  const accept = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8';
+  const { res, log } = await run(t, contactEnv(), contactRequest({ ...FORM, name: ' ', message: '\n\t' }, { headers: { accept } }));
+  assert.equal(res.status, 400);
+  assert.equal(await res.text(), '/contact/invalid/ [名前、本文] [ray-test-1]');
+  assert.equal(log['app.contact.response_format'], 'html');
+});
+
+for (const path of [
+  '/contact/sent/',
+  '/contact/invalid/',
+  '/contact/rejected/',
+  '/contact/limited/',
+  '/contact/failed/',
+  '/contact/invalid/index.html',
+  '/contact/failed/?submitted=1',
+]) {
+  test(`結果ページ ${path} を直接開くと /contact/ へ 303 で移す`, async () => {
+    const res = await worker.fetch(new Request(ORIGIN + path), env);
+    assert.equal(res.status, 303);
+    assert.equal(res.headers.get('location'), 'https://mosidas.dev/contact/');
+  });
+}
+
+for (const path of ['/contact/sent/?submitted=1', '/contact/']) {
+  test(`${path} はアセットをそのまま返す`, async () => {
+    const res = await worker.fetch(new Request(ORIGIN + path), env);
+    assert.equal(res.status, 200);
+    assert.equal(await res.text(), 'asset');
+  });
+}
 
 test('send が例外を投げると 502 で失敗ページを返し、error ログに code を残す', async (t) => {
   const env = contactEnv({
