@@ -48,17 +48,11 @@ const log = (fields: Record<string, unknown>) =>
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
-    const url = new URL(request.url);
-    if (url.protocol !== 'https:' || url.hostname !== 'mosidas.dev') {
-      // new URL(path, ORIGIN) は //evil.example を別ホストに解決するため、文字列連結で組み立てる
-      return Response.redirect(ORIGIN + url.pathname + url.search, 301);
+    try {
+      return await route(request, env);
+    } catch (e) {
+      return serverError(request, env, e);
     }
-    if (url.pathname === '/api/contact') return handleContact(request, env);
-    // 結果ページは Worker の置換を経たときか、JS 無しの送信完了で移ったときだけ見せる
-    // shortcut: 結果ページの直接表示の転送はログ・メトリクスなし, 件数を知る必要が出たら計装する
-    const result = url.pathname.match(/^\/contact\/(sent|invalid|rejected|limited|failed)\/(?:index\.html)?$/)?.[1];
-    if (result && !(result === 'sent' && url.searchParams.has('submitted'))) return Response.redirect(ORIGIN + '/contact/', 303);
-    return env.ASSETS.fetch(request);
   },
 
   // 失敗は throw して Cron Events に失敗として残す
@@ -84,6 +78,48 @@ export default {
     if (!('buildId' in r)) throw new Error(`Deploy Hook の呼び出しに失敗した: ${r.errorType}`);
   },
 };
+
+async function route(request: Request, env: Env): Promise<Response> {
+  const url = new URL(request.url);
+  if (url.protocol !== 'https:' || url.hostname !== 'mosidas.dev') {
+    // new URL(path, ORIGIN) は //evil.example を別ホストに解決するため、文字列連結で組み立てる
+    return Response.redirect(ORIGIN + url.pathname + url.search, 301);
+  }
+  if (url.pathname === '/api/contact') return handleContact(request, env);
+  // 結果ページは Worker の置換を経たときか、JS 無しの送信完了で移ったときだけ見せる
+  // shortcut: 結果ページの直接表示の転送はログ・メトリクスなし, 件数を知る必要が出たら計装する
+  const result = url.pathname.match(/^\/contact\/(sent|invalid|rejected|limited|failed)\/(?:index\.html)?$/)?.[1];
+  if (result && !(result === 'sent' && url.searchParams.has('submitted'))) return Response.redirect(ORIGIN + '/contact/', 303);
+  return env.ASSETS.fetch(request);
+}
+
+// message と stack は応答にもログにも載せない。message には IP・URL・メールアドレスが混ざりうる
+async function serverError(request: Request, env: Env, e: unknown): Promise<Response> {
+  let response: Response;
+  let fallback = false;
+  try {
+    response = await assetPage(env, '/500', 500);
+  } catch {
+    response = new Response('エラーが発生しました。時間をおいて、再度お試しください。', {
+      status: 500,
+      headers: { 'content-type': 'text/plain; charset=utf-8' },
+    });
+    fallback = true;
+  }
+  log({
+    level: 'error',
+    msg: '要求の処理中に例外が発生した',
+    'app.request.id': request.headers.get('cf-ray') ?? crypto.randomUUID(),
+    'http.request.method': request.method,
+    'url.path': new URL(request.url).pathname,
+    'http.response.status_code': 500,
+    'error.type': e instanceof Error ? e.name : 'unknown',
+    'app.error.origin': 'system',
+    'app.error.transient': false,
+    ...(fallback && { 'app.error.page_fallback': true }),
+  });
+  return response;
+}
 
 // URL はシークレットのため、ログにもエラーにも載せない
 async function triggerBuild(
@@ -174,11 +210,14 @@ async function processContact(request: Request, env: Env, json: boolean): Promis
     outcome,
     response: json
       ? Response.json({ result: page, ...(fields && { fields }) }, { status })
-      : await resultPage(env, RESULT_PAGES[page], status, fields ? missingText(fields) : ''),
+      : await assetPage(env, '/contact/' + RESULT_PAGES[page] + '/', status, fields ? missingText(fields) : ''),
   });
 
   if (request.method !== 'POST') {
-    return { outcome: 'method_not_allowed', response: new Response(null, { status: 405, headers: { Allow: 'POST' } }) };
+    // Accept が JSON でも HTML を返す。問い合わせのページの script は POST しか送らない
+    const response = await assetPage(env, '/405/', 405);
+    response.headers.set('Allow', 'POST');
+    return { outcome: 'method_not_allowed', response };
   }
   if (request.headers.get('origin') !== ORIGIN) return fail('bad_origin', 'rejected', 403);
   const secret = env.TURNSTILE_SECRET_KEY;
@@ -261,8 +300,8 @@ function validate(
 }
 
 // 利用者の入力は書き戻さない。差し込むのは固定のラベルだけ
-async function resultPage(env: Env, name: string, status: number, missing: string): Promise<Response> {
-  const asset = await env.ASSETS.fetch(new Request(ORIGIN + '/contact/' + name + '/'));
+async function assetPage(env: Env, path: string, status: number, missing = ''): Promise<Response> {
+  const asset = await env.ASSETS.fetch(new Request(ORIGIN + path));
   const body = (await asset.text()).replaceAll('%MISSING%', missing);
   // CSP などはアセットから引き継ぎ、置換で長さが変わる Content-Length とアセットのキャッシュ状態を示す cf-cache-status を落とす
   const headers = new Headers(asset.headers);

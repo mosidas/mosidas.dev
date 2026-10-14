@@ -401,7 +401,71 @@ test('GET は 405 と Allow: POST を返す', async (t) => {
   const { res, log } = await run(t, contactEnv(), contactRequest(FORM, { method: 'GET' }));
   assert.equal(res.status, 405);
   assert.equal(res.headers.get('allow'), 'POST');
+  assert.equal(await res.text(), '/405/ []');
+  assert.equal(res.headers.get('content-security-policy'), CSP);
   assert.equal(log.level, 'warn');
+  assert.equal(log['app.contact.outcome'], 'method_not_allowed');
+});
+
+test('Worker で例外が起きると 500 でエラーページを返し、例外の内容を出さずに error ログを残す', async (t) => {
+  const env = {
+    ASSETS: {
+      fetch: async (req) => {
+        if (new URL(req.url).pathname === '/500') return new Response('500 page', { headers: { 'content-security-policy': CSP } });
+        throw new TypeError(`${IP} の内部情報`);
+      },
+    },
+  };
+  const req = new Request(ORIGIN + '/works/', { headers: { 'cf-ray': 'ray-test-1' } });
+  const { res, log, stream } = await run(t, env, req);
+  assert.equal(res.status, 500);
+  const text = await res.text();
+  assert.equal(text, '500 page');
+  assert.equal(res.headers.get('content-security-policy'), CSP);
+  assert.equal(stream, 'error');
+  assert.equal(log.level, 'error');
+  assert.equal(log.msg, '要求の処理中に例外が発生した');
+  assert.equal(log['error.type'], 'TypeError');
+  assert.equal(log['app.error.origin'], 'system');
+  assert.equal(log['app.request.id'], 'ray-test-1');
+  assert.equal(log['url.path'], '/works/');
+  assert.equal(log['http.request.method'], 'GET');
+  assert.equal(log['http.response.status_code'], 500);
+  for (const s of ['内部情報', IP]) {
+    assert.ok(!text.includes(s), `本文に ${s} が含まれる`);
+    assert.ok(!JSON.stringify(log).includes(s), `ログに ${s} が含まれる`);
+  }
+});
+
+test('500 のページも取れないときはプレーンテキストの 500 を返す', async (t) => {
+  const env = {
+    ASSETS: {
+      fetch: async () => {
+        throw new TypeError(`${IP} の内部情報`);
+      },
+    },
+  };
+  const { res, log } = await run(t, env, new Request(ORIGIN + '/works/'));
+  assert.equal(res.status, 500);
+  assert.equal(res.headers.get('content-type'), 'text/plain; charset=utf-8');
+  assert.equal(await res.text(), 'エラーが発生しました。時間をおいて、再度お試しください。');
+  assert.equal(log['app.error.page_fallback'], true);
+});
+
+test('GET /api/contact で 405 のページを取れないときは 500 を返し、ログは境界の 1 行だけ', async (t) => {
+  const env = contactEnv({
+    ASSETS: {
+      fetch: async (req) => {
+        if (new URL(req.url).pathname === '/500') return new Response('500 page');
+        throw new TypeError('アセットを取れない');
+      },
+    },
+  });
+  const { res, log } = await run(t, env, contactRequest(FORM, { method: 'GET' }));
+  assert.equal(res.status, 500);
+  assert.equal(await res.text(), '500 page');
+  assert.equal(log.msg, '要求の処理中に例外が発生した');
+  assert.equal(log['url.path'], '/api/contact');
 });
 
 test('form 以外の content-type は 400 を返す', async (t) => {
