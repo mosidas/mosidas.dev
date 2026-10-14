@@ -308,6 +308,13 @@ test('すべてのページで表示用のプロンプト記号が ❯ で、$ �
   assert.match(html, /<span aria-hidden="true"[^>]*>❯<\/span> top/);
 });
 
+test('表示の文言が「問い合わせ」を「お問い合わせ」で統一する', async () => {
+  assert.match(contact, /<h1[^>]*>お問い合わせ<\/h1>/);
+  for (const path of await allPages()) {
+    assert.doesNotMatch(await readDist(path), /(?<!お)問い合わせ/, `「お」の無い表記が残る: ${path}`);
+  }
+});
+
 test('問い合わせの補足文とトップへ戻るリンクがどのページにも無い', async () => {
   for (const path of await allPages()) {
     const page = await readDist(path);
