@@ -88,6 +88,11 @@ const ymd = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Tokyo' });
     list-style: none;
   }
 
+  /* woff2 に ↗ が無いため、サンセリフの箇所と同じ退避先で描く */
+  .stack span[aria-hidden='true'] {
+    font-family: var(--font-sans);
+  }
+
   .news {
     display: flex;
     flex-direction: column;

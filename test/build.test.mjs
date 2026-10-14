@@ -198,10 +198,12 @@ const pageCss = async (page) =>
 test('プライバシーポリシーの制定日が本文から余白で離れる', async () => {
   assert.match(privacy, /<p class="enacted"[^>]*>2026 年 10 月 13 日 制定<\/p>/);
   const css = await pageCss(privacy);
-  const rule = css.search(/p\[data-astro-cid-[a-z0-9]+\]\.enacted\{margin-top:24px\}/);
-  assert.ok(rule >= 0, 'margin-top の規則がない');
+  const rule = css.match(/p\[(data-astro-cid-[a-z0-9]+)\]\.enacted\{margin-top:24px\}/);
+  assert.ok(rule, 'margin-top の規則がない');
   // 詳細度が p:not(.prompt-line) の margin: 0 と同じため、後ろに無いと効かない
-  assert.ok(rule > css.indexOf(':not(.prompt-line){'), 'margin: 0 の規則より前にある');
+  const reset = css.indexOf(`p[${rule[1]}]:not(.prompt-line){`);
+  assert.ok(reset >= 0, 'margin: 0 の規則がない');
+  assert.ok(rule.index > reset, 'margin: 0 の規則より前にある');
 });
 
 test('トップと問い合わせのページがフッターからプライバシーポリシーへリンクする', () => {
@@ -360,6 +362,14 @@ test('フォントを自前で配信し、CSS がそれを参照する', async (
   for (const ref of refs) assert.ok(files.includes(ref), `参照先がない: ${ref}`);
   for (const family of ["font-family: 'M PLUS 1';", "font-family: 'M PLUS 1 Code';"]) {
     assert.ok(css.includes(family), `書体がない: ${family}`);
+  }
+});
+
+test('等幅の箇所の ↗ をサンセリフで表示する', async () => {
+  const work = await readDist(`works/${projects[0].name}/index.html`);
+  for (const [name, page] of [['stack', html], ['url', work]]) {
+    const rule = new RegExp(`\\.${name}\\[data-astro-cid-[a-z0-9]+\\] span\\[data-astro-cid-[a-z0-9]+\\]\\[aria-hidden=["']?true["']?\\]\\{font-family:var\\(--font-sans\\)\\}`);
+    assert.match(await pageCss(page), rule, `規則がない: .${name}`);
   }
 });
 
