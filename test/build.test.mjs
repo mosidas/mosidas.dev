@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { access, readFile, readdir, stat } from 'node:fs/promises';
 import { projects } from '../src/data/projects.ts';
 import { beaconToken } from '../src/analytics.ts';
+import { RESULTS as MESSAGES } from '../src/contact-messages.ts';
 import news from '../src/data/news.json' with { type: 'json' };
 import zenn from '../src/data/zenn.json' with { type: 'json' };
 
@@ -152,6 +153,17 @@ test('結果ページが 5 つあり、noindex が付き、Worker が置き換�
   }
   assert.ok(pages.invalid.includes('%MISSING%'));
   assert.ok(pages.failed.includes('%REQUEST_ID%'));
+});
+
+test('結果ページの h1 と本文が RESULTS の文言どおりで、inline の文を含まない', async () => {
+  for (const [name, { heading, body, missing, requestId, inline }] of Object.entries(MESSAGES)) {
+    const page = await readDist(`contact/${name}/index.html`);
+    assert.match(page, new RegExp(`<h1[^>]*>${heading}</h1>`), `h1 が違う: ${name}`);
+    for (const line of body) assert.ok(page.includes(`>${line}</p>`), `本文がない: ${name} の ${line}`);
+    if (missing) assert.ok(page.includes(`>${missing}%MISSING%</p>`), `未入力の項目の文がない: ${name}`);
+    if (requestId) assert.ok(page.includes(`>${requestId}%REQUEST_ID%</p>`), `識別番号の文がない: ${name}`);
+    if (inline) assert.ok(!page.includes(inline), `inline の文を含む: ${name}`);
+  }
 });
 
 test('Worker が参照する結果ページがすべてビルド成果物にある', async () => {

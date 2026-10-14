@@ -1,3 +1,5 @@
+import { missingText, type Field } from './contact-messages.ts';
+
 // shortcut: workers.dev からの転送のログ・メトリクスなし, 転送の件数を知る必要が出たら計装する
 interface Env {
   ASSETS: { fetch(request: Request): Promise<Response> };
@@ -10,7 +12,6 @@ interface Env {
 
 const ORIGIN = 'https://mosidas.dev';
 const RESULT_PAGES = { invalid: 'invalid', rejected: 'rejected', limited: 'limited', failed: 'failed' } as const;
-const LABELS = { name: '名前', email: 'メールアドレス', message: '本文' } as const;
 const CONTROL = /\p{Cc}/u;
 const EMAIL = /^[^\s@<>()",;:\\]+@[^\s@<>()",;:\\]+\.[^\s@<>()",;:\\]+$/;
 const DEPLOY_HOOK = 'https://api.cloudflare.com/client/v4/workers/builds/deploy_hooks/';
@@ -19,7 +20,6 @@ const BUILD_RETRY_MS = 10_000;
 const LIMIT = 3;
 const WINDOW_MS = 60_000;
 
-type Field = keyof typeof LABELS;
 type Outcome = keyof typeof FAILURES | 'sent';
 interface Result {
   response: Response;
@@ -197,7 +197,7 @@ async function processContact(request: Request, env: Env, id: string): Promise<R
 
   const checked = validate(params);
   if (!checked.ok) {
-    const r = await fail('invalid_fields', 'invalid', 400, checked.fields.map((f) => LABELS[f]).join('、'));
+    const r = await fail('invalid_fields', 'invalid', 400, missingText(checked.fields));
     return { ...r, invalidFields: checked.fields };
   }
 
