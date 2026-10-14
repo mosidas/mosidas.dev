@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { access, readFile, readdir, stat } from 'node:fs/promises';
 import { projects } from '../src/data/projects.ts';
 import { beaconToken } from '../src/analytics.ts';
+import { RESULTS as MESSAGES } from '../src/contact-messages.ts';
 import news from '../src/data/news.json' with { type: 'json' };
 import zenn from '../src/data/zenn.json' with { type: 'json' };
 
@@ -137,21 +138,46 @@ test('問い合わせのページが send の送信ボタンを持つ', () => {
   assert.ok(button[1].includes('send'), `送信ボタンの文言が違う: ${button[1]}`);
 });
 
-test('問い合わせのページの script は Turnstile の 1 本だけで、インラインの style を含まない', () => {
+test('問い合わせのページの script は Turnstile と送信用の 2 本だけで、インラインの style を含まない', async () => {
   const scripts = stripBeacon(contact).match(/<script[^>]*>/g) ?? [];
-  assert.equal(scripts.length, 1);
+  assert.equal(scripts.length, 2);
   assert.match(scripts[0], /src="https:\/\/challenges\.cloudflare\.com\/turnstile\/v0\/api\.js"/);
+  const src = scripts[1].match(/^<script type="module" src="\/(_astro\/[^"]+\.js)">$/)?.[1];
+  assert.ok(src, `送信用の script でない: ${scripts[1]}`);
+  assert.ok((await readDist(src)).includes('application/json'), `送信の処理がない: ${src}`);
   assert.ok(!contact.includes('<style'));
+});
+
+test('問い合わせのページが 5 つの結果のブロックを hidden で持ち、置換前の印を含まない', () => {
+  for (const [name, { heading, missing, page, inline }] of Object.entries(MESSAGES)) {
+    const block = contact.match(new RegExp(`<div[^>]*data-result="${name}"[^>]*>([\\s\\S]*?)</div>`));
+    assert.ok(block, `ブロックがない: ${name}`);
+    assert.match(block[0], /^<div[^>]*\shidden[\s>]/, `hidden でない: ${name}`);
+    assert.match(block[1], new RegExp(`<h2[^>]*>${heading}</h2>`), `見出しがない: ${name}`);
+    if (missing) assert.ok(block[1].includes('data-slot="missing"'), `未入力の項目の枠がない: ${name}`);
+    if (inline) assert.ok(block[1].includes(`>${inline}</p>`), `inline の文がない: ${name}`);
+    if (page) assert.ok(!contact.includes(page), `page の文を含む: ${name}`);
+  }
+  assert.ok(!contact.includes('%MISSING%'), '印を含む: %MISSING%');
 });
 
 test('結果ページが 5 つあり、noindex が付き、Worker が置き換える印を含む', async () => {
   const pages = Object.fromEntries(await Promise.all(RESULTS.map(async (r) => [r, await readDist(`contact/${r}/index.html`)])));
   for (const [name, page] of Object.entries(pages)) {
     assert.ok(page.includes('<meta name="robots" content="noindex">'), `noindex がない: ${name}`);
-    assert.ok(page.includes('href="/contact/"'), `戻るリンクがない: ${name}`);
   }
   assert.ok(pages.invalid.includes('%MISSING%'));
-  assert.ok(pages.failed.includes('%REQUEST_ID%'));
+});
+
+test('結果ページの h1 と本文が RESULTS の文言どおりで、inline の文を含まない', async () => {
+  for (const [name, { heading, body, missing, page, inline }] of Object.entries(MESSAGES)) {
+    const html = await readDist(`contact/${name}/index.html`);
+    assert.ok(html.includes(`>${heading}</h1>`), `h1 が違う: ${name}`);
+    for (const line of body) assert.ok(html.includes(`>${line}</p>`), `本文がない: ${name} の ${line}`);
+    if (missing) assert.ok(html.includes(`>${missing}%MISSING%</p>`), `未入力の項目の文がない: ${name}`);
+    if (page) assert.ok(html.includes(`>${page}</p>`), `案内の文がない: ${name}`);
+    if (inline) assert.ok(!html.includes(inline), `inline の文を含む: ${name}`);
+  }
 });
 
 test('Worker が参照する結果ページがすべてビルド成果物にある', async () => {
@@ -170,8 +196,8 @@ test('CSP が Turnstile と Web Analytics の読み込みと送信先だけを�
   const csp = headers.match(/Content-Security-Policy: (.*)/)?.[1] ?? '';
   for (const directive of [
     "default-src 'none'",
-    'script-src https://challenges.cloudflare.com https://static.cloudflareinsights.com;',
-    'connect-src https://cloudflareinsights.com;',
+    "script-src 'self' https://challenges.cloudflare.com https://static.cloudflareinsights.com;",
+    "connect-src 'self' https://cloudflareinsights.com;",
     'frame-src https://challenges.cloudflare.com;',
     "form-action 'self'",
     "font-src 'self';",
@@ -346,7 +372,7 @@ test('すべてのページが外部フォント・インラインの script・s
       assert.ok(!page.includes(word), `含む: ${path} の ${word}`);
     }
     for (const script of page.match(/<script[^>]*>/g) ?? []) {
-      assert.ok(script.includes('src="https://'), `インラインの script: ${path}`);
+      assert.match(script, / src="(https:\/\/|\/_astro\/)/, `インラインの script: ${path}`);
     }
   }
 });

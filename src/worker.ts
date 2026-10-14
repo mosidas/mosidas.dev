@@ -1,3 +1,5 @@
+import { missingText, type Field } from './contact-messages.ts';
+
 // shortcut: workers.dev からの転送のログ・メトリクスなし, 転送の件数を知る必要が出たら計装する
 interface Env {
   ASSETS: { fetch(request: Request): Promise<Response> };
@@ -10,7 +12,6 @@ interface Env {
 
 const ORIGIN = 'https://mosidas.dev';
 const RESULT_PAGES = { invalid: 'invalid', rejected: 'rejected', limited: 'limited', failed: 'failed' } as const;
-const LABELS = { name: '名前', email: 'メールアドレス', message: '本文' } as const;
 const CONTROL = /\p{Cc}/u;
 const EMAIL = /^[^\s@<>()",;:\\]+@[^\s@<>()",;:\\]+\.[^\s@<>()",;:\\]+$/;
 const DEPLOY_HOOK = 'https://api.cloudflare.com/client/v4/workers/builds/deploy_hooks/';
@@ -19,7 +20,6 @@ const BUILD_RETRY_MS = 10_000;
 const LIMIT = 3;
 const WINDOW_MS = 60_000;
 
-type Field = keyof typeof LABELS;
 type Outcome = keyof typeof FAILURES | 'sent';
 interface Result {
   response: Response;
@@ -54,6 +54,10 @@ export default {
       return Response.redirect(ORIGIN + url.pathname + url.search, 301);
     }
     if (url.pathname === '/api/contact') return handleContact(request, env);
+    // 結果ページは Worker の置換を経たときか、JS 無しの送信完了で移ったときだけ見せる
+    // shortcut: 結果ページの直接表示の転送はログ・メトリクスなし, 件数を知る必要が出たら計装する
+    const result = url.pathname.match(/^\/contact\/(sent|invalid|rejected|limited|failed)\/(?:index\.html)?$/)?.[1];
+    if (result && !(result === 'sent' && url.searchParams.has('submitted'))) return Response.redirect(ORIGIN + '/contact/', 303);
     return env.ASSETS.fetch(request);
   },
 
@@ -141,10 +145,11 @@ export class ContactRateLimiter {
 // shortcut: 問い合わせのメトリクスは Workers Logs の集計で代える, 件数が増えたら Analytics Engine へ移す
 async function handleContact(request: Request, env: Env): Promise<Response> {
   const started = Date.now();
-  const ray = request.headers.get('cf-ray');
-  // 相関 ID は結果ページの HTML に埋め込むため、形を確かめてから使う
-  const id = ray && /^[\w-]{1,64}$/.test(ray) ? ray : crypto.randomUUID();
-  const r = await processContact(request, env, id);
+  // 相関 ID はログにだけ載せる。利用者には表示しない
+  const id = request.headers.get('cf-ray') ?? crypto.randomUUID();
+  // Accept は返す形式を選ぶだけで、応答に書き戻さない
+  const json = /\bapplication\/json\b/i.test(request.headers.get('accept') ?? '');
+  const r = await processContact(request, env, json);
   const failure = r.outcome === 'sent' ? undefined : FAILURES[r.outcome];
   log({
     level: failure?.level ?? 'info',
@@ -152,6 +157,7 @@ async function handleContact(request: Request, env: Env): Promise<Response> {
     'app.request.id': id,
     'http.response.status_code': r.response.status,
     'app.contact.outcome': r.outcome,
+    'app.contact.response_format': json ? 'json' : 'html',
     duration_ms: Date.now() - started,
     ...(failure && {
       'error.type': r.errorType ?? r.outcome,
@@ -163,10 +169,12 @@ async function handleContact(request: Request, env: Env): Promise<Response> {
   return r.response;
 }
 
-async function processContact(request: Request, env: Env, id: string): Promise<Result> {
-  const fail = async (outcome: Outcome, page: keyof typeof RESULT_PAGES, status: number, missing = '') => ({
+async function processContact(request: Request, env: Env, json: boolean): Promise<Result> {
+  const fail = async (outcome: Outcome, page: keyof typeof RESULT_PAGES, status: number, fields?: Field[]) => ({
     outcome,
-    response: await resultPage(env, RESULT_PAGES[page], status, { MISSING: missing, REQUEST_ID: id }),
+    response: json
+      ? Response.json({ result: page, ...(fields && { fields }) }, { status })
+      : await resultPage(env, RESULT_PAGES[page], status, fields ? missingText(fields) : ''),
   });
 
   if (request.method !== 'POST') {
@@ -197,7 +205,7 @@ async function processContact(request: Request, env: Env, id: string): Promise<R
 
   const checked = validate(params);
   if (!checked.ok) {
-    const r = await fail('invalid_fields', 'invalid', 400, checked.fields.map((f) => LABELS[f]).join('、'));
+    const r = await fail('invalid_fields', 'invalid', 400, checked.fields);
     return { ...r, invalidFields: checked.fields };
   }
 
@@ -229,7 +237,10 @@ async function processContact(request: Request, env: Env, id: string): Promise<R
     const r = await fail('email_send_failed', 'failed', 502);
     return { ...r, errorType: typeof code === 'string' ? code : undefined };
   }
-  return { outcome: 'sent', response: new Response(null, { status: 303, headers: { Location: ORIGIN + '/contact/sent/' } }) };
+  const response = json
+    ? Response.json({ result: 'sent' })
+    : new Response(null, { status: 303, headers: { Location: ORIGIN + '/contact/sent/?submitted=1' } });
+  return { outcome: 'sent', response };
 }
 
 function validate(
@@ -249,15 +260,10 @@ function validate(
   return fields.length ? { ok: false, fields } : { ok: true, value };
 }
 
-// 利用者の入力は書き戻さない。差し込むのは固定のラベルと相関 ID だけ
-async function resultPage(
-  env: Env,
-  name: string,
-  status: number,
-  slots: { MISSING: string; REQUEST_ID: string },
-): Promise<Response> {
+// 利用者の入力は書き戻さない。差し込むのは固定のラベルだけ
+async function resultPage(env: Env, name: string, status: number, missing: string): Promise<Response> {
   const asset = await env.ASSETS.fetch(new Request(ORIGIN + '/contact/' + name + '/'));
-  const body = (await asset.text()).replaceAll('%MISSING%', slots.MISSING).replaceAll('%REQUEST_ID%', slots.REQUEST_ID);
+  const body = (await asset.text()).replaceAll('%MISSING%', missing);
   // CSP などはアセットから引き継ぎ、置換で長さが変わる Content-Length とアセットのキャッシュ状態を示す cf-cache-status を落とす
   const headers = new Headers(asset.headers);
   headers.delete('content-length');

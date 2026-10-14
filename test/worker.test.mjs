@@ -71,7 +71,7 @@ function contactEnv({ limiter = async () => new Response(null, { status: 204 }),
     },
     ASSETS: {
       fetch: async (req) =>
-        new Response(`${new URL(req.url).pathname} [%MISSING%] [%REQUEST_ID%]`, {
+        new Response(`${new URL(req.url).pathname} [%MISSING%]`, {
           headers: { 'content-security-policy': CSP, 'content-type': 'text/html; charset=utf-8', 'cf-cache-status': 'HIT' },
         }),
     },
@@ -113,7 +113,7 @@ test('正常な送信は 303 で送信完了ページへ移り、メールを 1 
   const env = contactEnv();
   const { res, log, stream, verifyCalls } = await run(t, env, contactRequest());
   assert.equal(res.status, 303);
-  assert.equal(res.headers.get('location'), 'https://mosidas.dev/contact/sent/');
+  assert.equal(res.headers.get('location'), 'https://mosidas.dev/contact/sent/?submitted=1');
   assert.equal(env.sent.length, 1);
   assert.equal(env.sent[0].to, 'owner@example.com');
   assert.equal(env.sent[0].from, 'contact@mosidas.dev');
@@ -130,8 +130,79 @@ test('正常な送信は 303 で送信完了ページへ移り、メールを 1 
   assert.equal(log['app.contact.outcome'], 'sent');
   assert.equal(log['app.request.id'], 'ray-test-1');
   assert.equal(log['http.response.status_code'], 303);
+  assert.equal(log['app.contact.response_format'], 'html');
   assert.equal(typeof log.duration_ms, 'number');
 });
+
+const JSON_ACCEPT = { accept: 'application/json' };
+
+test('Accept が JSON の正常な送信は 200 で結果を JSON で返し、メールを 1 通送る', async (t) => {
+  const env = contactEnv();
+  const { res, log, stream } = await run(t, env, contactRequest(FORM, { headers: JSON_ACCEPT }));
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get('content-type'), /^application\/json/);
+  assert.deepEqual(await res.json(), { result: 'sent' });
+  assert.equal(env.sent.length, 1);
+  assert.equal(stream, 'log');
+  assert.equal(log.level, 'info');
+  assert.equal(log['app.contact.outcome'], 'sent');
+  assert.equal(log['http.response.status_code'], 200);
+  assert.equal(log['app.contact.response_format'], 'json');
+  assert.equal(log['app.request.id'], 'ray-test-1');
+  assert.equal(typeof log.duration_ms, 'number');
+});
+
+for (const [label, form, headers, envOpts, status, body, outcome] of [
+  ['名前と本文が空白', { ...FORM, name: ' ', message: '\n\t' }, {}, {}, 400, { result: 'invalid', fields: ['name', 'message'] }, 'invalid_fields'],
+  ['トークンなし', { ...FORM, 'cf-turnstile-response': '' }, {}, {}, 403, { result: 'rejected' }, 'turnstile_missing'],
+  ['Origin が別', FORM, { origin: 'https://evil.example' }, {}, 403, { result: 'rejected' }, 'bad_origin'],
+  ['DO が 429', FORM, {}, { limiter: async () => new Response(null, { status: 429 }) }, 429, { result: 'limited' }, 'rate_limited'],
+  ['send が例外', FORM, {}, { send: async () => { throw new Error('送れない'); } }, 502, { result: 'failed' }, 'email_send_failed'],
+]) {
+  test(`Accept が JSON で${label}なら ${status} で結果を JSON で返す`, async (t) => {
+    const env = contactEnv(envOpts);
+    const { res, log } = await run(t, env, contactRequest(form, { headers: { ...JSON_ACCEPT, ...headers } }));
+    assert.equal(res.status, status);
+    const text = await res.text();
+    for (const s of SECRETS) assert.ok(!text.includes(s), `本文に ${s} が含まれる`);
+    assert.deepEqual(JSON.parse(text), body);
+    assert.equal(env.sent.length, outcome === 'email_send_failed' ? 1 : 0);
+    assert.equal(log['app.contact.outcome'], outcome);
+    assert.equal(log['app.contact.response_format'], 'json');
+  });
+}
+
+test('ブラウザーの Accept で不適合な送信は HTML の結果ページを返す', async (t) => {
+  const accept = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8';
+  const { res, log } = await run(t, contactEnv(), contactRequest({ ...FORM, name: ' ', message: '\n\t' }, { headers: { accept } }));
+  assert.equal(res.status, 400);
+  assert.equal(await res.text(), '/contact/invalid/ [名前、本文]');
+  assert.equal(log['app.contact.response_format'], 'html');
+});
+
+for (const path of [
+  '/contact/sent/',
+  '/contact/invalid/',
+  '/contact/rejected/',
+  '/contact/limited/',
+  '/contact/failed/',
+  '/contact/invalid/index.html',
+  '/contact/failed/?submitted=1',
+]) {
+  test(`結果ページ ${path} を直接開くと /contact/ へ 303 で移す`, async () => {
+    const res = await worker.fetch(new Request(ORIGIN + path), env);
+    assert.equal(res.status, 303);
+    assert.equal(res.headers.get('location'), 'https://mosidas.dev/contact/');
+  });
+}
+
+for (const path of ['/contact/sent/?submitted=1', '/contact/']) {
+  test(`${path} はアセットをそのまま返す`, async () => {
+    const res = await worker.fetch(new Request(ORIGIN + path), env);
+    assert.equal(res.status, 200);
+    assert.equal(await res.text(), 'asset');
+  });
+}
 
 test('send が例外を投げると 502 で失敗ページを返し、error ログに code を残す', async (t) => {
   const env = contactEnv({
@@ -141,7 +212,7 @@ test('send が例外を投げると 502 で失敗ページを返し、error ロ�
   });
   const { res, log } = await run(t, env, contactRequest());
   assert.equal(res.status, 502);
-  assert.equal(await res.text(), '/contact/failed/ [] [ray-test-1]');
+  assert.equal(await res.text(), '/contact/failed/ []');
   assert.equal(res.headers.get('content-security-policy'), CSP);
   assert.equal(res.headers.get('cf-cache-status'), null);
   assert.equal(res.headers.get('content-length'), null);
@@ -156,7 +227,7 @@ test('トークンが無ければ 403 で siteverify も send も呼ばない', 
   const env = contactEnv();
   const { res, log, verifyCalls } = await run(t, env, contactRequest({ ...FORM, 'cf-turnstile-response': '' }));
   assert.equal(res.status, 403);
-  assert.equal(await res.text(), '/contact/rejected/ [] [ray-test-1]');
+  assert.equal(await res.text(), '/contact/rejected/ []');
   assert.equal(verifyCalls.length, 0);
   assert.equal(env.sent.length, 0);
   assert.equal(log['app.contact.outcome'], 'turnstile_missing');
@@ -185,7 +256,7 @@ for (const [label, verify] of [
     const env = contactEnv();
     const { res, log } = await run(t, env, contactRequest(), verify);
     assert.equal(res.status, 503);
-    assert.equal(await res.text(), '/contact/failed/ [] [ray-test-1]');
+    assert.equal(await res.text(), '/contact/failed/ []');
     assert.equal(env.sent.length, 0);
     assert.equal(log.level, 'error');
     assert.equal(log['app.contact.outcome'], 'turnstile_unavailable');
@@ -197,7 +268,7 @@ test('名前と本文が空白だけなら 400 で不適合の項目名を示す
   const env = contactEnv();
   const { res, log, verifyCalls } = await run(t, env, contactRequest({ ...FORM, name: ' ', message: '\n\t' }));
   assert.equal(res.status, 400);
-  assert.equal(await res.text(), '/contact/invalid/ [名前、本文] [ray-test-1]');
+  assert.equal(await res.text(), '/contact/invalid/ [名前、本文]');
   assert.equal(env.sent.length, 0);
   assert.equal(verifyCalls.length, 0);
   assert.deepEqual(log['app.contact.invalid_fields'], ['name', 'message']);
@@ -216,7 +287,7 @@ for (const email of ['taro', 'taro@example', 'ta ro@example.com', 'taro@example.
     const env = contactEnv();
     const { res } = await run(t, env, contactRequest({ ...FORM, email }));
     assert.equal(res.status, 400);
-    assert.equal(await res.text(), '/contact/invalid/ [メールアドレス] [ray-test-1]');
+    assert.equal(await res.text(), '/contact/invalid/ [メールアドレス]');
     assert.equal(env.sent.length, 0);
   });
 }
@@ -225,7 +296,7 @@ test('DO が 429 を返すと 429 で siteverify も send も呼ばない', asyn
   const env = contactEnv({ limiter: async () => new Response(null, { status: 429 }) });
   const { res, log, verifyCalls } = await run(t, env, contactRequest());
   assert.equal(res.status, 429);
-  assert.equal(await res.text(), '/contact/limited/ [] [ray-test-1]');
+  assert.equal(await res.text(), '/contact/limited/ []');
   assert.deepEqual(env.limits, [IP]);
   assert.equal(verifyCalls.length, 0);
   assert.equal(env.sent.length, 0);
@@ -241,7 +312,7 @@ test('DO の fetch が例外を投げると 503 で siteverify も send も呼�
   });
   const { res, log, verifyCalls } = await run(t, env, contactRequest());
   assert.equal(res.status, 503);
-  assert.equal(await res.text(), '/contact/failed/ [] [ray-test-1]');
+  assert.equal(await res.text(), '/contact/failed/ []');
   assert.equal(verifyCalls.length, 0);
   assert.equal(env.sent.length, 0);
   assert.equal(log.level, 'error');
@@ -337,7 +408,7 @@ test('form 以外の content-type は 400 を返す', async (t) => {
   const env = contactEnv();
   const { res, log } = await run(t, env, contactRequest(FORM, { headers: { 'content-type': 'application/json' } }));
   assert.equal(res.status, 400);
-  assert.equal(await res.text(), '/contact/rejected/ [] [ray-test-1]');
+  assert.equal(await res.text(), '/contact/rejected/ []');
   assert.equal(log['app.contact.outcome'], 'bad_body');
 });
 
@@ -352,20 +423,20 @@ test('シークレットが未設定なら 503 を返す', async (t) => {
   const env = contactEnv({ TURNSTILE_SECRET_KEY: '' });
   const { res, log, verifyCalls } = await run(t, env, contactRequest());
   assert.equal(res.status, 503);
-  assert.equal(await res.text(), '/contact/failed/ [] [ray-test-1]');
+  assert.equal(await res.text(), '/contact/failed/ []');
   assert.equal(verifyCalls.length, 0);
   assert.equal(env.limits.length, 0);
   assert.equal(log.level, 'error');
   assert.equal(log['app.contact.outcome'], 'missing_config');
 });
 
-test('cf-ray が無ければ相関 ID を生成して結果ページとログに載せる', async (t) => {
+test('cf-ray が無ければ相関 ID を生成してログに載せ、結果ページには載せない', async (t) => {
   const req = contactRequest({ ...FORM, name: '' });
   req.headers.delete('cf-ray');
   const { res, log } = await run(t, contactEnv(), req);
   const id = log['app.request.id'];
   assert.match(id, /^[0-9a-f-]{36}$/);
-  assert.equal(await res.text(), `/contact/invalid/ [名前] [${id}]`);
+  assert.equal(await res.text(), '/contact/invalid/ [名前]');
 });
 
 test('wrangler.jsonc は vars を持たず、microCMS・GitHub の値を Worker に渡さない', async () => {
