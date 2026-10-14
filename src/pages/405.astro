@@ -1,0 +1,7 @@
+---
+import ErrorPage from '../layouts/ErrorPage.astro';
+---
+
+<ErrorPage heading="このページは直接開けません" command="cat /api/contact" output="cat: /api/contact: Permission denied">
+  <p>このアドレスはお問い合わせの送信先です。お問い合わせは contact のページから送信してください。</p>
+</ErrorPage>

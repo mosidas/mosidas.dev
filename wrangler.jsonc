@@ -6,12 +6,14 @@
   // workers.dev からの転送は workers.dev が有効であることを前提にする
   "workers_dev": true,
   "routes": [{ "pattern": "mosidas.dev", "custom_domain": true }],
-  // shortcut: アクセス数は Web Analytics(JS を実行するクライアントのみ)、エラーは Workers のメトリクス(例外のみ)で見る, 4xx の件数が要るようになったら Worker で計装する
+  // shortcut: アクセス数は Web Analytics(JS を実行するクライアントのみ)、エラーは Workers Logs の error ログ(fetch の例外は捕捉して 500 にする)と Workers のメトリクスで見る, 4xx の件数が要るようになったら Worker で計装する
   "assets": {
     "directory": "./dist",
     "binding": "ASSETS",
     // workers.dev の要求もアセットより先に Worker で転送するため
-    "run_worker_first": true
+    "run_worker_first": true,
+    // 一致しないパスに dist/404.html を 404 で返す。Worker の env.ASSETS.fetch にも適用される
+    "not_found_handling": "404-page"
   },
   "send_email": [{ "name": "EMAIL" }],
   // Free プランは SQLite バックエンドのみ。Rate Limiting バインディングは本番で 429 を返さなかった(docs/verification.md 7.)

@@ -1,0 +1,45 @@
+---
+import Base from './Base.astro';
+import Terminal from '../components/Terminal.astro';
+
+interface Props {
+  heading: string;
+  command: string;
+  output: string;
+}
+
+const { heading, command, output } = Astro.props;
+---
+
+<Base title={`${heading} | mosida`} description="ページを表示できなかったことを伝えるページ。" noindex>
+  <Terminal>
+    <p class="prompt-line" aria-hidden="true"><span class="prompt">❯</span> {command}</p>
+    <p class="output" aria-hidden="true">{output}</p>
+    <h1 class="heading">{heading}</h1>
+    <div class="message"><slot /></div>
+    <p class="prompt-line cursor-line" aria-hidden="true"><span class="prompt">❯</span> <span class="cursor"></span></p>
+  </Terminal>
+</Base>
+
+<style>
+  .output {
+    margin: 0 0 12px;
+    color: var(--accent-text);
+  }
+
+  /* Base の main h1 より詳細度を上げるため class で指定する */
+  .heading {
+    margin: 0 0 8px;
+    /* スマホ幅で「ん」だけが次の行に残ったため、文節で折り返して行の長さをそろえる */
+    word-break: auto-phrase;
+    text-wrap: balance;
+  }
+
+  .message :global(p) {
+    max-width: 37.5rem;
+    margin: 0;
+    font: 0.875rem/1.9 var(--font-sans);
+    color: var(--term-sub);
+    text-wrap: pretty;
+  }
+</style>

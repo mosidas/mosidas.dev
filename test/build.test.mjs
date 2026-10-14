@@ -180,6 +180,21 @@ test('結果ページの h1 と本文が RESULTS の文言どおりで、inline 
   }
 });
 
+test('エラーページ 3 枚が dist にあり、noindex が付き、敬体の見出しと案内を持つ', async () => {
+  const ERRORS = [
+    ['404.html', 'ページが見つかりませんでした', 'お探しのページは移動または削除された可能性があります。URL に誤りがないかご確認ください。'],
+    ['500.html', 'ページを表示できませんでした', 'サーバーでエラーが発生しました。時間をおいて、再度お試しください。'],
+    ['405/index.html', 'このページは直接開けません', 'このアドレスはお問い合わせの送信先です。お問い合わせは contact のページから送信してください。'],
+  ];
+  for (const [path, heading, body] of ERRORS) {
+    const page = await readDist(path);
+    assert.ok(page.includes('<meta name="robots" content="noindex">'), `noindex がない: ${path}`);
+    assert.ok(page.includes(`>${heading}</h1>`), `h1 が違う: ${path}`);
+    assert.ok(page.includes(`>${body}</p>`), `本文がない: ${path}`);
+    assert.doesNotMatch(page, /である|してほしい/, `常体を含む: ${path}`);
+  }
+});
+
 test('Worker が参照する結果ページがすべてビルド成果物にある', async () => {
   const worker = await readFile(new URL('../src/worker.ts', import.meta.url), 'utf8');
   // 成功時は '/contact/sent/' の直書き、失敗時は RESULT_PAGES の値を '/contact/' + name + '/' で組み立てる
@@ -262,7 +277,7 @@ test('beaconToken が形式外の token を CI の内外で拒む', () => {
 
 test('全ページが beacon を token の設定時に 1 本、未設定時に 0 本含む', async () => {
   const expected = process.env.PUBLIC_WEB_ANALYTICS_TOKEN ? 1 : 0;
-  const pages = (await readdir(new URL('../dist/', import.meta.url), { recursive: true })).filter((f) => f.endsWith('index.html'));
+  const pages = (await readdir(new URL('../dist/', import.meta.url), { recursive: true })).filter((f) => f.endsWith('.html'));
   assert.ok(pages.length >= 8, `ページが足りない: ${pages.length}`);
   for (const page of pages) {
     const count = (await readDist(page)).match(BEACON)?.length ?? 0;
@@ -271,7 +286,8 @@ test('全ページが beacon を token の設定時に 1 本、未設定時に 0
 });
 
 const DIST = new URL('../dist/', import.meta.url);
-const allPages = async () => (await readdir(DIST, { recursive: true })).filter((f) => f.endsWith('index.html'));
+// index.html 群に加え、Astro が特別な名前で出す 404.html・500.html を含める
+const allPages = async () => (await readdir(DIST, { recursive: true })).filter((f) => f.endsWith('.html'));
 
 test('すべてのページのナビが 4 件のリンクを持ち、現在ページだけに aria-current を付ける', async () => {
   const sections = { '': '/', contact: '/contact/', works: '/works/', articles: '/articles/' };
@@ -280,7 +296,7 @@ test('すべてのページのナビが 4 件のリンクを持ち、現在ペ�
     const nav = page.match(/<nav[^>]*>[\s\S]*?<\/nav>/)?.[0] ?? '';
     const hrefs = [...nav.matchAll(/href="([^"]*)"/g)].map((m) => m[1]);
     assert.deepEqual(hrefs, ['/', '/works/', '/articles/', '/contact/'], `ナビが違う: ${path}`);
-    const top = path.includes('/') ? path.split('/')[0] : '';
+    const top = path === 'index.html' ? '' : path.split('/')[0];
     const expected = sections[top];
     const current = page.match(/<a[^>]*aria-current="page"[^>]*>/g) ?? [];
     assert.equal(current.length, expected ? 1 : 0, `aria-current の数が違う: ${path}`);
