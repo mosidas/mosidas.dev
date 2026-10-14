@@ -15,11 +15,4 @@ const { heading, body, missing, page } = Astro.props as InferGetStaticPropsType<
   {body.map((text) => <p>{text}</p>)}
   {missing && <p>{missing}%MISSING%</p>}
   {page && <p>{page}</p>}
-  <p class="back"><a href="/contact/">お問い合わせのページへ戻る</a></p>
 </Base>
-
-<style>
-  .back {
-    margin: 48px 0 0;
-  }
-</style>

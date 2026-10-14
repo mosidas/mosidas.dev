@@ -165,7 +165,6 @@ test('結果ページが 5 つあり、noindex が付き、Worker が置き換�
   const pages = Object.fromEntries(await Promise.all(RESULTS.map(async (r) => [r, await readDist(`contact/${r}/index.html`)])));
   for (const [name, page] of Object.entries(pages)) {
     assert.ok(page.includes('<meta name="robots" content="noindex">'), `noindex がない: ${name}`);
-    assert.ok(page.includes('href="/contact/"'), `戻るリンクがない: ${name}`);
   }
   assert.ok(pages.invalid.includes('%MISSING%'));
 });
