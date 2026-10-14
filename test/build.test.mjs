@@ -156,13 +156,14 @@ test('結果ページが 5 つあり、noindex が付き、Worker が置き換�
 });
 
 test('結果ページの h1 と本文が RESULTS の文言どおりで、inline の文を含まない', async () => {
-  for (const [name, { heading, body, missing, requestId, inline }] of Object.entries(MESSAGES)) {
-    const page = await readDist(`contact/${name}/index.html`);
-    assert.match(page, new RegExp(`<h1[^>]*>${heading}</h1>`), `h1 が違う: ${name}`);
-    for (const line of body) assert.ok(page.includes(`>${line}</p>`), `本文がない: ${name} の ${line}`);
-    if (missing) assert.ok(page.includes(`>${missing}%MISSING%</p>`), `未入力の項目の文がない: ${name}`);
-    if (requestId) assert.ok(page.includes(`>${requestId}%REQUEST_ID%</p>`), `識別番号の文がない: ${name}`);
-    if (inline) assert.ok(!page.includes(inline), `inline の文を含む: ${name}`);
+  for (const [name, { heading, body, missing, requestId, page, inline }] of Object.entries(MESSAGES)) {
+    const html = await readDist(`contact/${name}/index.html`);
+    assert.ok(html.includes(`>${heading}</h1>`), `h1 が違う: ${name}`);
+    for (const line of body) assert.ok(html.includes(`>${line}</p>`), `本文がない: ${name} の ${line}`);
+    if (missing) assert.ok(html.includes(`>${missing}%MISSING%</p>`), `未入力の項目の文がない: ${name}`);
+    if (requestId) assert.ok(html.includes(`>${requestId}%REQUEST_ID%</p>`), `識別番号の文がない: ${name}`);
+    if (page) assert.ok(html.includes(`>${page}</p>`), `案内の文がない: ${name}`);
+    if (inline) assert.ok(!html.includes(inline), `inline の文を含む: ${name}`);
   }
 });
 
