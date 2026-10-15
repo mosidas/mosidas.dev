@@ -170,20 +170,66 @@ microCMS の Hobby プランで、Deploy Hook の URL をカスタム通知の W
 ### 7.1 方式
 
 問い合わせ API は、`src/worker.ts` の `POST /api/contact` である。
+応答の形式は、要求の Accept ヘッダーで切り替える。
+Accept に `application/json` を含む要求には JSON を、それ以外の要求(form post)には HTML を返す。
+Accept の値は形式の判定にだけ使い、応答に書き戻さない。
 処理は次の順に行う。
 
 1. POST 以外の要求を 405 で拒否する。
-2. Origin を検査し、不一致を 403 で拒否する。
-3. 設定に不備があれば 503 を返す。
-4. レート制限を超えた要求を 429 で拒否する。
-5. 本文の形式を検査し、400 または 413 を返す。
-6. 項目を検証し、不備を 400 で拒否する。
-7. Turnstile のトークンが無ければ 403 で拒否する。
-8. siteverify の結果に応じて 403 または 503 を返す。
-9. メールを送信する。送信に失敗したら 502 を返す。成功したら 303 で `/contact/sent/` へ移す。
+2. Origin を検査し、不一致を 403(`rejected`)で拒否する。
+3. 設定に不備があれば 503(`failed`)を返す。
+4. レート制限を超えた要求を 429(`limited`)で拒否する。
+5. 本文の形式を検査する。Content-Type が `application/x-www-form-urlencoded` でなければ 400(`rejected`)、要求の本文が 66,662 文字を超えれば 413(`rejected`)を返す。
+6. 項目を検証し、不備を 400(`invalid`)で拒否する。
+7. Turnstile のトークンが無いか 2,048 文字を超えれば 403(`rejected`)で拒否する。
+8. siteverify が不合格なら 403(`rejected`)、siteverify の呼び出しが失敗すれば 503(`failed`)を返す。
+9. メールを送信する。送信に失敗したら 502(`failed`)を返す。成功したら、JSON の要求には 200 と `{"result":"sent"}` を返し、それ以外の要求は 303 で `/contact/sent/?submitted=1` へ移す。
 
-405 を除き、失敗したときは、静的な結果ページ(`/contact/{invalid,rejected,limited,failed}/`)に状態コードを付けて返す。
+本文の長さ(5. の検査)は、URL エンコード後の文字数で数える。
+上限の 66,662 は「各項目の検証の上限の和 × 9 + キー名と区切りの 44 文字」で求める。
+検証の上限は名前 100、メールアドレス 254、本文 5,000、トークン 2,048 で、単位は UTF-16 の code unit である。
+9 は、3 バイトの文字 1 つをパーセントエンコードした後の長さである。
+フォームから送れる入力は、この上限に届かない(PR #30、TASK-078)。
+
+失敗の状態コードは、応答の形式によらず同じである。
+405 を除き、JSON の要求には `{ "result": <結果名>, "fields"?: [...] }` を返す。
+それ以外の要求には、結果ページ(`/contact/{invalid,rejected,limited,failed}/`)の HTML をその状態コードで返す。
+`invalid` のときは、不備のある項目(`name`・`email`・`message`)を、JSON では `fields` に入れ、結果ページでは項目の名前(名前・メールアドレス・本文)として本文に差し込む。
+利用者の入力は応答に書き戻さない。
+差し込むのは固定の項目名だけである。
 405 は `/405/` のエラーページを `Allow: POST` 付きで返す。
+405 の応答は、Accept によらず HTML である。
+
+結果ページ(`/contact/{sent,invalid,rejected,limited,failed}/`)を直接開くと、Worker が 303 で `/contact/` へ移す。
+末尾に `index.html` を付けた URL も同じである。
+例外はクエリに `submitted` を持つ `/contact/sent/` だけで、この URL には静的アセットをそのまま返す。
+転送の目的は、未置換の `%MISSING%` を見せないことと、送信していない人が送信完了と誤認するのを防ぐことである。
+失敗の応答の結果ページは、Worker がアセットから直接読み出すため、この転送を通らない。
+
+入力画面(`src/pages/contact/index.astro`)の script は、`Accept: application/json` を付けて `fetch` で `/api/contact` へ送信し、結果を同じ画面のフォームの上に表示する。
+成功したらフォームを隠し、送信完了の案内を表示する。
+失敗したら入力を残し、`fields` の項目に `aria-invalid` を付け、Turnstile を取り直す。
+Turnstile のトークンが無いときは送信せず、`rejected` の案内を表示する。
+応答の `result` と `fields` は、許可リストで確かめてから表示に使う。
+`fetch` の例外、30 秒の時間切れ、JSON でない応答は、`failed` として表示する。
+script が動かないときは、form post で送信し、結果ページへ移る。
+ただし Turnstile も JavaScript を要するため、JavaScript が無効のブラウザーからは送信できない。
+入力画面は `<noscript>` でその旨を案内する。
+結果の案内の文言は `src/contact-messages.ts` にまとめ、敬体で書く。
+
+`public/_headers` の CSP は、`script-src` と `connect-src` に `'self'` を含む(PR #28)。
+`/_astro/*.js` の読み込みには `script-src 'self'` が、`fetch` での送信には `connect-src 'self'` が必要になる。
+Astro は小さい script をインラインで出力するが、CSP はインラインの script を許さない。
+そのため `astro.config.mjs` の `vite.build.assetsInlineLimit: 0` で、script を外部ファイルに出す。
+
+問い合わせ 1 件ごとに、Workers Logs へ 1 行のログ(`msg` は `問い合わせを処理した`)を出す。
+処理の途中で例外が発生したとき(結果ページの読み出しの失敗など)は、この行は出ない。
+このときは Worker の fetch が例外を捕捉して 500 のページを返し、`msg` が `要求の処理中に例外が発生した` の error ログを出す(10.4)。
+処理の結果は `app.contact.outcome`(`bad_origin`・`turnstile_missing`・`sent` など、結果名より細かい分類)に入る。
+`app.contact.response_format` には、Accept から選んだ形式(`json` または `html`)が入る。
+405 の応答は Accept によらず HTML だが、Accept に `application/json` を含む要求では `json` が記録される。
+相関 ID の `app.request.id`(`cf-ray` の値。無ければ UUID)はログにだけ載せ、利用者には表示しない。
+結果ページの直接表示の転送は、ログに出さない(`src/worker.ts` の shortcut のコメント)。
 
 メール送信には、Cloudflare Email Routing の `send_email` バインディングを使う。設定は `wrangler.jsonc` の `send_email: [{ name: "EMAIL" }]` である。
 送信先は、Email Routing で検証済みの宛先(Destination addresses)に限られる。
@@ -200,7 +246,7 @@ MailChannels は Workers 向けの無料提供が終わったため見送った�
 
 レート制限は、IP ごとの Durable Object で数える(PR #9、コミット `e9ef8e6`)。
 Durable Object は SQLite バックエンドで、Free プランで利用できる。
-同一 IP からの受付は 60 秒に 3 回までとし、4 回目以降は 429 と `limited` の結果ページを返す。
+同一 IP からの受付は 60 秒に 3 回までとし、4 回目以降は 429(`limited`)を返す。
 Durable Object の呼び出しが失敗したときは、503 で拒否する(fail closed)。
 この方式にした経緯は 7.4 に書く。
 
@@ -256,6 +302,20 @@ Free プランで、Rate Limiting バインディングと `send_email` を含�
 | Origin が無い POST | 403 |
 | GET | 405 |
 | 必須項目が空の POST | 400 |
+
+TASK-077 の PR #28 を 2026-10-14 12:50:13 UTC にマージした(マージコミット `d3f16ee`)。
+マージ後に本番で確かめた結果は、下の表のとおりである。
+確認日は 2026-10-14 で、確認の時刻は記録していない。
+
+| 確認項目 | 結果 |
+| :-- | :-- |
+| 結果ページ 5 つ(`/contact/{sent,invalid,rejected,limited,failed}/`)の直接表示 | 303 |
+| `/contact/sent/?submitted=1` | 200 |
+| JSON で項目に不備のある POST | 400、`result`(`invalid`)と `fields` |
+| JSON でトークンの無い POST | 403、`{"result":"rejected"}` |
+| CSP | `script-src` と `connect-src` に `'self'` を含む |
+| `/contact/` の script 要素 | Turnstile と `/_astro/*.js` の 2 本 |
+| 実ブラウザーからの送信の成功 | 本人の確認待ち |
 
 ### 7.4 レート制限
 
