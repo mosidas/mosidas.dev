@@ -19,6 +19,12 @@ const BUILD_ATTEMPTS = 3;
 const BUILD_RETRY_MS = 10_000;
 const LIMIT = 3;
 const WINDOW_MS = 60_000;
+// 項目の長さの上限(UTF-16 code unit)。検証と要求の本文の上限の両方がここから決まる
+const MAX_LENGTH = { name: 100, email: 254, message: 5000, token: 2048 } as const;
+// 1 code unit はパーセントエンコード後に最大 9 文字(3 バイトの文字)になるため、全項目が上限ちょうどの日本語でも通る長さにする
+const MAX_BODY =
+  (MAX_LENGTH.name + MAX_LENGTH.email + MAX_LENGTH.message + MAX_LENGTH.token) * 9 +
+  'name=&email=&message=&cf-turnstile-response='.length;
 
 type Outcome = keyof typeof FAILURES | 'sent';
 interface Result {
@@ -239,7 +245,7 @@ async function processContact(request: Request, env: Env, json: boolean): Promis
   const contentType = (request.headers.get('content-type') ?? '').toLowerCase();
   if (!contentType.startsWith('application/x-www-form-urlencoded')) return fail('bad_body', 'rejected', 400);
   const raw = await request.text();
-  if (raw.length > 32768) return fail('bad_body', 'rejected', 413);
+  if (raw.length > MAX_BODY) return fail('bad_body', 'rejected', 413);
   const params = new URLSearchParams(raw);
 
   const checked = validate(params);
@@ -249,7 +255,7 @@ async function processContact(request: Request, env: Env, json: boolean): Promis
   }
 
   const token = params.get('cf-turnstile-response') ?? '';
-  if (!token || token.length > 2048) return fail('turnstile_missing', 'rejected', 403);
+  if (!token || token.length > MAX_LENGTH.token) return fail('turnstile_missing', 'rejected', 403);
   let verdict: { success?: unknown; hostname?: unknown };
   try {
     const body = new URLSearchParams({ secret, response: token });
@@ -291,11 +297,16 @@ function validate(
     message: (params.get('message') ?? '').trim(),
   };
   const fields: Field[] = [];
-  if (value.name.length < 1 || value.name.length > 100 || CONTROL.test(value.name)) fields.push('name');
-  if (value.email.length < 3 || value.email.length > 254 || CONTROL.test(value.email) || !EMAIL.test(value.email)) {
+  if (value.name.length < 1 || value.name.length > MAX_LENGTH.name || CONTROL.test(value.name)) fields.push('name');
+  if (
+    value.email.length < 3 ||
+    value.email.length > MAX_LENGTH.email ||
+    CONTROL.test(value.email) ||
+    !EMAIL.test(value.email)
+  ) {
     fields.push('email');
   }
-  if (value.message.length < 1 || value.message.length > 5000) fields.push('message');
+  if (value.message.length < 1 || value.message.length > MAX_LENGTH.message) fields.push('message');
   return fields.length ? { ok: false, fields } : { ok: true, value };
 }
 

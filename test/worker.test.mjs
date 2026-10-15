@@ -476,11 +476,45 @@ test('form 以外の content-type は 400 を返す', async (t) => {
   assert.equal(log['app.contact.outcome'], 'bad_body');
 });
 
-test('本文が 32768 文字を超えると 413 を返す', async (t) => {
+test('全項目が上限ちょうどの日本語でも送信できる', async (t) => {
   const env = contactEnv();
-  const { res } = await run(t, env, contactRequest(FORM, { body: 'x'.repeat(32769) }));
+  const form = {
+    name: 'あ'.repeat(100),
+    email: 'あ'.repeat(249) + '@あ.jp',
+    message: 'あ'.repeat(5000),
+    'cf-turnstile-response': 'あ'.repeat(2048),
+  };
+  const body = new URLSearchParams(form).toString();
+  assert.ok(body.length > 66000);
+  const { res, log } = await run(t, env, contactRequest(form, { body }));
+  assert.equal(res.status, 303);
+  assert.equal(env.sent.length, 1);
+  assert.ok(env.sent[0].text.includes(form.message));
+  assert.equal(log.level, 'info');
+  assert.equal(log['app.contact.outcome'], 'sent');
+  assert.equal(log['http.response.status_code'], 303);
+  assert.ok(!JSON.stringify(log).includes('あ'), 'ログに入力が含まれる');
+});
+
+test('要求の本文が 66662 文字を超えると 413 を返し、ちょうどなら検証まで進む', async (t) => {
+  const at = await run(t, contactEnv(), contactRequest(FORM, { body: 'x'.repeat(66662) }));
+  assert.equal(at.res.status, 400);
+  assert.equal(await at.res.text(), '/contact/invalid/ [名前、メールアドレス、本文]');
+  assert.equal(at.log['app.contact.outcome'], 'invalid_fields');
+
+  t.mock.restoreAll();
+  const env = contactEnv();
+  const { res, log, verifyCalls } = await run(t, env, contactRequest(FORM, { body: 'x'.repeat(66663) }));
   assert.equal(res.status, 413);
+  assert.equal(await res.text(), '/contact/rejected/ []');
   assert.equal(env.sent.length, 0);
+  assert.equal(verifyCalls.length, 0);
+  assert.equal(log.level, 'warn');
+  assert.equal(log['app.contact.outcome'], 'bad_body');
+  assert.equal(log['error.type'], 'bad_body');
+  assert.equal(log['app.error.origin'], 'client');
+  assert.equal(log['app.error.transient'], false);
+  assert.equal(log['http.response.status_code'], 413);
 });
 
 test('シークレットが未設定なら 503 を返す', async (t) => {
