@@ -368,6 +368,7 @@ WAF ルールは有効であり、削除せずに残してある。
 11:08:49 の計測は、1 回目から 429 になった。
 直前の 6 回のうち 3 回を、Durable Object が受付として数えていたためである。
 `limited` ページの title は「送信が多すぎる | mosidas」である。
+現在の title は「送信回数の上限に達しました | mosida」である(文言は PR #28 の `73180da`、表示名は `5de1f73` で変えた)。
 
 11:12:44 の計測は、curl 8.7.1 の `--rate 15/m` で 4 秒間隔にした。
 local port は 58439 で、`num_connects` は 1 回目だけ 1 だった。
@@ -380,7 +381,7 @@ local port は 58439 で、`num_connects` は 1 回目だけ 1 だった。
 | 429 の本文 | 遮断した層 |
 | :-- | :-- |
 | 「error code: 1015」 | ゾーンの WAF レート制限ルール |
-| 「送信が多すぎる」の結果ページ(`limited`) | Worker(Durable Objects) |
+| 「送信回数の上限に達しました」の結果ページ(`limited`) | Worker(Durable Objects) |
 
 Rate Limiting バインディングは、同一接続での試験をしていない。
 試験の前に、PR #9 で Durable Objects に置き換えたためである。
