@@ -181,18 +181,18 @@ Accept の値は形式の判定にだけ使い、応答に書き戻さない。
 4. レート制限を超えた要求を 429(`limited`)で拒否する。
 5. 本文の形式を検査する。Content-Type が `application/x-www-form-urlencoded` でなければ 400(`rejected`)、要求の本文が 66,662 文字を超えれば 413(`rejected`)を返す。
 6. 項目を検証し、不備を 400(`invalid`)で拒否する。
-7. Turnstile のトークンが無ければ 403(`rejected`)で拒否する。
+7. Turnstile のトークンが無いか 2,048 文字を超えれば 403(`rejected`)で拒否する。
 8. siteverify が不合格なら 403(`rejected`)、siteverify の呼び出しが失敗すれば 503(`failed`)を返す。
 9. メールを送信する。送信に失敗したら 502(`failed`)を返す。成功したら、JSON の要求には 200 と `{"result":"sent"}` を返し、それ以外の要求は 303 で `/contact/sent/?submitted=1` へ移す。
 
-5. の本文の長さは、URL エンコード後の文字数で数える。
+本文の長さ(5. の検査)は、URL エンコード後の文字数で数える。
 上限の 66,662 は「各項目の検証の上限の和 × 9 + キー名と区切りの 44 文字」で求める。
 検証の上限は名前 100、メールアドレス 254、本文 5,000、トークン 2,048 で、単位は UTF-16 の code unit である。
 9 は、3 バイトの文字 1 つをパーセントエンコードした後の長さである。
 フォームから送れる入力は、この上限に届かない(PR #30、TASK-078)。
 
-405 を除き、失敗の状態コードは応答の形式によらず同じである。
-JSON の要求には `{ "result": <結果名>, "fields"?: [...] }` を返す。
+失敗の状態コードは、応答の形式によらず同じである。
+405 を除き、JSON の要求には `{ "result": <結果名>, "fields"?: [...] }` を返す。
 それ以外の要求には、結果ページ(`/contact/{invalid,rejected,limited,failed}/`)の HTML をその状態コードで返す。
 `invalid` のときは、不備のある項目(`name`・`email`・`message`)を、JSON では `fields` に入れ、結果ページでは項目の名前(名前・メールアドレス・本文)として本文に差し込む。
 利用者の入力は応答に書き戻さない。
@@ -215,7 +215,7 @@ Turnstile のトークンが無いときは送信せず、`rejected` の案内�
 script が動かないときは、form post で送信し、結果ページへ移る。
 ただし Turnstile も JavaScript を要するため、JavaScript が無効のブラウザーからは送信できない。
 入力画面は `<noscript>` でその旨を案内する。
-案内の文言は `src/contact-messages.ts` にまとめ、敬体で書く。
+結果の案内の文言は `src/contact-messages.ts` にまとめ、敬体で書く。
 
 `public/_headers` の CSP は、`script-src` と `connect-src` に `'self'` を含む(PR #28)。
 `/_astro/*.js` の読み込みには `script-src 'self'` が、`fetch` での送信には `connect-src 'self'` が必要になる。
@@ -223,8 +223,12 @@ Astro は小さい script をインラインで出力するが、CSP はイン�
 そのため `astro.config.mjs` の `vite.build.assetsInlineLimit: 0` で、script を外部ファイルに出す。
 
 問い合わせ 1 件ごとに、Workers Logs へ 1 行のログ(`msg` は `問い合わせを処理した`)を出す。
-結果は `app.contact.outcome`、応答の形式は `app.contact.response_format`(`json` または `html`)に入る。
-相関 ID の `app.request.id`(`cf-ray` の値)はログにだけ載せ、利用者には表示しない。
+処理の途中で例外が発生したとき(結果ページの読み出しの失敗など)は、この行は出ない。
+このときは Worker の fetch が例外を捕捉して 500 のページを返し、`msg` が `要求の処理中に例外が発生した` の error ログを出す(10.4)。
+処理の結果は `app.contact.outcome`(`bad_origin`・`turnstile_missing`・`sent` など、結果名より細かい分類)に入る。
+`app.contact.response_format` には、Accept から選んだ形式(`json` または `html`)が入る。
+405 の応答は Accept によらず HTML だが、Accept に `application/json` を含む要求では `json` が記録される。
+相関 ID の `app.request.id`(`cf-ray` の値。無ければ UUID)はログにだけ載せ、利用者には表示しない。
 結果ページの直接表示の転送は、ログに出さない(`src/worker.ts` の shortcut のコメント)。
 
 メール送信には、Cloudflare Email Routing の `send_email` バインディングを使う。設定は `wrangler.jsonc` の `send_email: [{ name: "EMAIL" }]` である。
