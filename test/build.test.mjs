@@ -222,6 +222,13 @@ test('CSP が Turnstile と Web Analytics の読み込みと送信先だけを�
   assert.ok(!csp.includes("'unsafe-inline'"));
 });
 
+test('全応答に HSTS を includeSubDomains と preload なしで付ける', async () => {
+  const headers = await readFile(new URL('../public/_headers', import.meta.url), 'utf8');
+  const all = headers.match(/^\/\*\n((?: {2}.*(?:\n|$))*)/m)?.[1] ?? '';
+  assert.ok(all.split('\n').includes('  Strict-Transport-Security: max-age=31536000'));
+  assert.ok(!/includeSubDomains|preload/i.test(headers));
+});
+
 const privacy = await readDist('privacy/index.html');
 
 test('プライバシーポリシーのページが Turnstile と Web Analytics の利用を説明する', () => {
