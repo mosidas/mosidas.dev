@@ -21,7 +21,7 @@ const lines = (input, d = data, c = ctx) => {
 test('help は 13 コマンドの名前を含む一覧を返す', () => {
   const out = lines('help');
   assert.equal(out.length, 13);
-  for (const name of ['help', 'whoami', 'cat about.txt', 'cat stack.txt', 'ls', 'tail works.log', 'tail articles.log', 'tail news.log', 'cd <works|articles|contact|~>', 'clear', 'echo <text>', 'date', 'pwd']) {
+  for (const name of ['help', 'whoami', 'cat about.txt', 'cat stack.txt', 'ls', 'tail works.log', 'tail articles.log', 'tail news.log', 'cd <dir>', 'clear', 'echo <text>', 'date', 'pwd']) {
     assert.ok(out.some((l) => l.startsWith(name + ' ')), name);
   }
   // 説明の列がそろう

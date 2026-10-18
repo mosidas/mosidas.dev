@@ -18,7 +18,7 @@ const HELP: [string, string][] = [
   ['tail works.log', '制作物'],
   ['tail articles.log', '記事'],
   ['tail news.log', 'お知らせ'],
-  ['cd <works|articles|contact|~>', 'ページを移動'],
+  ['cd <dir>', 'ページを移動'],
   ['clear', '画面を消去'],
   ['echo <text>', '文字列を表示'],
   ['date', '現在の日時'],
