@@ -99,11 +99,18 @@
     gap: 4px;
   }
 
+  .history:empty {
+    display: none;
+  }
+
   /* JS で作る要素にはスコープの属性が付かないため :global で書く */
-  .history :global(.output) {
-    margin: 0;
+  .history :global(.entry > p) {
     white-space: pre-wrap;
     overflow-wrap: anywhere;
+  }
+
+  .history :global(.output) {
+    margin: 0;
     color: var(--term-sub);
   }
 
