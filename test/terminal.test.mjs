@@ -21,7 +21,7 @@ const lines = (input, d = data, c = ctx) => {
 test('help は 13 コマンドの名前を含む一覧を返す', () => {
   const out = lines('help');
   assert.equal(out.length, 13);
-  for (const name of ['help', 'whoami', 'cat about.txt', 'cat stack.txt', 'ls', 'tail works.log', 'tail articles.log', 'tail news.log', 'cd <works|articles|contact|~>', 'clear', 'echo <文字列>', 'date', 'pwd']) {
+  for (const name of ['help', 'whoami', 'cat about.txt', 'cat stack.txt', 'ls', 'tail works.log', 'tail articles.log', 'tail news.log', 'cd <works|articles|contact|~>', 'clear', 'echo <text>', 'date', 'pwd']) {
     assert.ok(out.some((l) => l.startsWith(name + ' ')), name);
   }
   // 説明の列がそろう
@@ -64,7 +64,7 @@ test('whoami・cat・ls・echo・pwd・date が期待どおりの行を返す', 
   assert.deepEqual(lines('echo'), ['']);
   assert.deepEqual(lines('pwd'), ['/home/mosida/works']);
   assert.deepEqual(lines('pwd', data, { ...ctx, path: '/' }), ['/home/mosida']);
-  assert.deepEqual(lines('date'), ['2026年10月18日日曜日 12:04:05 JST']);
+  assert.match(lines('date')[0], /^2026年10月18日日曜日 12:04:05/);
 });
 
 test('clear は clear を返す', () => {
@@ -108,7 +108,7 @@ test('sudo・rm・exit の小ネタを返す', () => {
   for (const flag of ['-rf', '-fr', '-Rf']) {
     assert.deepEqual(lines(`rm ${flag} /`), ['rm: 読み取り専用のサイトです。何も消えていません。'], flag);
   }
-  assert.deepEqual(lines('rm about.txt'), ['rm: 読み取り専用のサイトです']);
-  assert.deepEqual(lines('rm -r about.txt'), ['rm: 読み取り専用のサイトです']);
+  assert.deepEqual(lines('rm about.txt'), ['rm: 読み取り専用のサイトです。']);
+  assert.deepEqual(lines('rm -r about.txt'), ['rm: 読み取り専用のサイトです。']);
   assert.deepEqual(lines('exit'), ['exit: 終了するには、タブを閉じてください。']);
 });

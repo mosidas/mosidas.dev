@@ -20,7 +20,7 @@ const HELP: [string, string][] = [
   ['tail news.log', 'お知らせ'],
   ['cd <works|articles|contact|~>', 'ページを移動'],
   ['clear', '画面を消去'],
-  ['echo <文字列>', '文字列を表示'],
+  ['echo <text>', '文字列を表示'],
   ['date', '現在の日時'],
   ['pwd', '現在の場所'],
 ];
@@ -101,7 +101,7 @@ export function run(input: string, data: TerminalData, ctx: { path: string; now:
       return out(
         args.some((a) => a.startsWith('-') && /[rR]/.test(a) && a.includes('f'))
           ? 'rm: 読み取り専用のサイトです。何も消えていません。'
-          : 'rm: 読み取り専用のサイトです',
+          : 'rm: 読み取り専用のサイトです。',
       );
     case 'exit':
       return out('exit: 終了するには、タブを閉じてください。');
