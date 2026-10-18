@@ -1,0 +1,148 @@
+<p class="prompt-line cursor-line" aria-hidden="true"><span class="prompt">❯</span> <span class="cursor"></span></p>
+<template id="shell-template">
+  <div class="prompt-line cursor-line shell">
+    <div class="history" role="log"></div>
+    <form class="prompt-line shell-form">
+      <span class="prompt" aria-hidden="true">❯</span>
+      <label for="shell-input" class="visually-hidden">コマンド</label>
+      <input
+        id="shell-input"
+        type="text"
+        maxlength="200"
+        autocomplete="off"
+        autocapitalize="off"
+        spellcheck="false"
+        enterkeyhint="enter"
+        aria-describedby="shell-hint"
+        placeholder=" "
+      />
+      <span class="cursor" aria-hidden="true"></span>
+      <p id="shell-hint" class="visually-hidden">help と入力すると、使えるコマンドを表示します。</p>
+    </form>
+  </div>
+</template>
+
+<script>
+  import { run, type TerminalData } from '../terminal';
+  import { projects } from '../data/projects';
+  import zennJson from '../data/zenn.json';
+  import newsJson from '../data/news.json';
+
+  // shortcut: クライアントだけで完結し入力を送らない要件のため、ログを取らない
+  const data: TerminalData = {
+    projects: projects.map(({ name, date, short }) => ({ name, date, short })),
+    // articles/index.astro と同じく Zenn 以外の記事を出さない
+    articles: (zennJson as { title: string; url: string; date: string }[])
+      .filter((a) => a.url.startsWith('https://zenn.dev/'))
+      .map(({ title, date }) => ({ title, date })),
+    news: (newsJson as { title: string; publishedAt: string }[]).map(({ title, publishedAt }) => ({ title, publishedAt })),
+  };
+
+  // shortcut: 履歴は 100 件まで, 長い出力のコマンドを足すときに見直す
+  const MAX_ENTRIES = 100;
+
+  const line = document.querySelector('.cursor-line');
+  const template = document.querySelector<HTMLTemplateElement>('#shell-template');
+  if (line && template) {
+    line.replaceWith(template.content.cloneNode(true));
+    const form = document.querySelector<HTMLFormElement>('.shell-form');
+    const input = document.querySelector<HTMLInputElement>('#shell-input');
+    const history = document.querySelector<HTMLElement>('.shell .history');
+    if (form && input && history) {
+      const paragraph = (className: string, text: string) => {
+        const p = document.createElement('p');
+        p.className = className;
+        p.textContent = text;
+        return p;
+      };
+
+      form.addEventListener('submit', (event) => {
+        event.preventDefault();
+        const entry = document.createElement('div');
+        entry.className = 'entry';
+        const command = paragraph('prompt-line', ' ' + input.value);
+        const prompt = document.createElement('span');
+        prompt.className = 'prompt';
+        prompt.setAttribute('aria-hidden', 'true');
+        prompt.textContent = '❯';
+        command.prepend(prompt);
+        entry.append(command);
+        history.append(entry);
+
+        try {
+          const result = run(input.value, data, { path: location.pathname, now: new Date() });
+          if (result.kind === 'output') {
+            entry.append(...result.lines.map((text) => paragraph('output', text)));
+          } else if (result.kind === 'clear') {
+            history.replaceChildren();
+          } else {
+            location.assign(result.href);
+          }
+        } catch {
+          entry.append(paragraph('output', 'コマンドを実行できませんでした。'));
+        }
+
+        while (history.children.length > MAX_ENTRIES) history.firstElementChild?.remove();
+        input.value = '';
+        form.scrollIntoView({ block: 'nearest' });
+      });
+    }
+  }
+</script>
+
+<style>
+  .shell,
+  .history,
+  .history :global(.entry) {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  /* JS で作る要素にはスコープの属性が付かないため :global で書く */
+  .history :global(.output) {
+    margin: 0;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    color: var(--term-sub);
+  }
+
+  .shell-form {
+    display: flex;
+    align-items: center;
+    gap: 0.5em;
+  }
+
+  input {
+    flex: 1;
+    order: 1;
+    min-width: 0;
+    border: 0;
+    padding: 0;
+    background: transparent;
+    color: var(--term-fg);
+    font: inherit;
+    caret-color: var(--term-fg);
+  }
+
+  /* Terminal の .cursor より詳細度を上げる。input の order: 1 により、DOM の順と違い ❯ の直後に描く */
+  .shell-form .cursor {
+    display: none;
+  }
+
+  @supports selector(:has(*)) {
+    .shell-form:not(:focus-within):has(input:placeholder-shown) .cursor {
+      display: inline-block;
+    }
+  }
+
+  @media (any-pointer: coarse) {
+    .shell-form {
+      min-height: 44px;
+    }
+
+    input {
+      font-size: 1rem;
+    }
+  }
+</style>

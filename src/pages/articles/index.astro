@@ -2,6 +2,7 @@
 import zennJson from '../../data/zenn.json';
 import Base from '../../layouts/Base.astro';
 import Terminal from '../../components/Terminal.astro';
+import Shell from '../../components/Shell.astro';
 
 // scripts/fetch-zenn.mjs でも検証済みだが、表示側でも Zenn 以外へのリンクを出さない
 const articles = (zennJson as { title: string; url: string; date: string }[]).filter((a) => a.url.startsWith('https://zenn.dev/'));
@@ -30,7 +31,7 @@ const ymd = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Tokyo' });
         <p class="empty">記事はまだない。</p>
       )
     }
-    <p class="prompt-line cursor-line" aria-hidden="true"><span class="prompt">❯</span> <span class="cursor"></span></p>
+    <Shell />
   </Terminal>
 </Base>
 

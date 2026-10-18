@@ -2,6 +2,7 @@
 import newsJson from '../data/news.json';
 import Base from '../layouts/Base.astro';
 import Terminal from '../components/Terminal.astro';
+import Shell from '../components/Shell.astro';
 
 const news: { id: string; title: string; publishedAt: string; body: string }[] = newsJson;
 // sv-SE は YYYY-MM-DD の形で返す
@@ -52,7 +53,7 @@ const ymd = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Tokyo' });
         )
       }
     </section>
-    <p class="prompt-line cursor-line" aria-hidden="true"><span class="prompt">❯</span> <span class="cursor"></span></p>
+    <Shell />
   </Terminal>
 </Base>
 
@@ -101,8 +102,8 @@ const ymd = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Tokyo' });
     padding-top: 24px;
   }
 
-  /* 窓の下端へは .news の margin-top: auto で寄せ、カーソルは一覧の直下に付ける(Terminal の .cursor-line の auto を上書き) */
-  .news + .cursor-line {
+  /* 窓の下端へは .news の margin-top: auto で寄せ、カーソルの行は一覧の直下に付ける(Terminal の .cursor-line の auto を上書き)。行は Shell のスコープのため :global */
+  .news + :global(.cursor-line) {
     margin-top: 0;
   }
 
