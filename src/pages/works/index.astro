@@ -1,6 +1,7 @@
 ---
 import Base from '../../layouts/Base.astro';
 import Terminal from '../../components/Terminal.astro';
+import Shell from '../../components/Shell.astro';
 import { projects } from '../../data/projects';
 ---
 
@@ -21,6 +22,6 @@ import { projects } from '../../data/projects';
         ))
       }
     </ol>
-    <p class="prompt-line cursor-line" aria-hidden="true"><span class="prompt">❯</span> <span class="cursor"></span></p>
+    <Shell />
   </Terminal>
 </Base>

@@ -109,12 +109,18 @@ test('zenn.json が 10 件以内で、日付の降順に並び、url がすべ�
   for (const { url } of zenn) assert.ok(url.startsWith('https://zenn.dev/'), `Zenn でない: ${url}`);
 });
 
-test('dist/index.html が script とインラインの style を含まない', () => {
-  assert.ok(!stripBeacon(html).includes('<script'));
+const readDist = (path) => readFile(new URL(`../dist/${path}`, import.meta.url), 'utf8');
+
+test('dist/index.html の script は端末用の 1 本だけで、インラインの style を含まない', async () => {
+  const scripts = stripBeacon(html).match(/<script[^>]*>/g) ?? [];
+  assert.equal(scripts.length, 1);
+  const src = scripts[0].match(/^<script type="module" src="\/(_astro\/[^"]+\.js)">$/)?.[1];
+  assert.ok(src, `端末用の script でない: ${scripts[0]}`);
+  const js = await readDist(src);
+  assert.ok(js.includes('command not found'), `コマンドの処理がない: ${src}`);
+  assert.ok(!js.includes('innerHTML'), `innerHTML を使う: ${src}`);
   assert.ok(!html.includes('<style'));
 });
-
-const readDist = (path) => readFile(new URL(`../dist/${path}`, import.meta.url), 'utf8');
 const contact = await readDist('contact/index.html');
 const RESULTS = ['sent', 'invalid', 'rejected', 'limited', 'failed'];
 
@@ -376,6 +382,22 @@ test('表示の文言が「問い合わせ」を「お問い合わせ」で統�
   assert.match(contact, /<h1[^>]*>お問い合わせ<\/h1>/);
   for (const path of await allPages()) {
     assert.doesNotMatch(await readDist(path), /(?<!お)問い合わせ/, `「お」の無い表記が残る: ${path}`);
+  }
+});
+
+test('トップ・制作物・記事のページが静的なカーソル行と入力欄の template を持ち、ほかのページは持たない', async () => {
+  const shellPages = ['index.html', 'works/index.html', 'articles/index.html'];
+  for (const path of shellPages) {
+    const page = await readDist(path);
+    assert.ok(page.includes('<p class="prompt-line cursor-line" aria-hidden="true"'), `静的なカーソル行がない: ${path}`);
+    const template = page.match(/<template id="shell-template"[^>]*>([\s\S]*?)<\/template>/);
+    assert.ok(template, `template がない: ${path}`);
+    assert.ok(template[1].includes('<label for="shell-input"'), `入力欄のラベルがない: ${path}`);
+  }
+  const others = (await allPages()).filter((path) => !shellPages.includes(path));
+  assert.ok(others.length > 0);
+  for (const path of others) {
+    assert.ok(!(await readDist(path)).includes('shell-template'), `template を含む: ${path}`);
   }
 });
 
