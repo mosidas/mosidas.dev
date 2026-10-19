@@ -203,7 +203,7 @@ const inTmp = async (fn) => {
   }
 };
 
-test('restore はスナップショットの zenn.json を checkout に書く', () =>
+test('restore はスナップショットの zenn.json を root に書く', () =>
   inTmp(async (root, file) => {
     const zenn = '[{"title":"t","url":"https://zenn.dev/mosida/articles/a","publishedAt":"2026-10-01T00:00:00.000Z"}]\n';
     respond = github({ zenn });
@@ -212,7 +212,7 @@ test('restore はスナップショットの zenn.json を checkout に書く', 
     assert.deepEqual(keys(), [CONTENTS]);
   }));
 
-test('restore はスナップショットに無ければ checkout を書き換えない', () =>
+test('restore はスナップショットに無ければ書かない', () =>
   inTmp(async (root, file) => {
     respond = github();
     assert.equal(await restoreFromSnapshot('tok', 'src/data/zenn.json', root), false);
