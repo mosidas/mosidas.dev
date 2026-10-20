@@ -1,6 +1,9 @@
 import { test, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { commitSnapshot, createIssue, redact, restoreFromSnapshot, main } from '../scripts/build.mjs';
 
 const realFetch = globalThis.fetch;
@@ -184,48 +187,52 @@ test('Issue の作成に失敗しても終了コード 1 で終わる', async ()
   assert.equal(await main({ WORKERS_CI: '1', WORKERS_CI_BRANCH: 'main', SNAPSHOT_GITHUB_TOKEN: 'tok' }, run), 1);
 });
 
-const ZENN_URL = new URL('../src/data/zenn.json', import.meta.url);
 const PROD = { WORKERS_CI: '1', WORKERS_CI_BRANCH: 'main', SNAPSHOT_GITHUB_TOKEN: 'tok' };
 
-/** checkout の zenn.json を書き換えるテストのあとで元に戻す。 @param {() => Promise<void>} fn */
-const keepZenn = async (fn) => {
-  const original = await readFile(ZENN_URL);
+/**
+ * 一時ディレクトリを root にして restore を試す。checkout の zenn.json は、並列に走る build.test.mjs が import するので書き換えない。
+ * @param {(root: URL, file: string) => Promise<void>} fn
+ */
+const inTmp = async (fn) => {
+  const dir = await mkdtemp(join(tmpdir(), 'zenn-'));
   try {
-    await fn();
+    await mkdir(join(dir, 'src/data'), { recursive: true });
+    await fn(pathToFileURL(dir + '/'), join(dir, 'src/data/zenn.json'));
   } finally {
-    await writeFile(ZENN_URL, original);
+    await rm(dir, { recursive: true, force: true });
   }
 };
 
-test('restore はスナップショットの zenn.json を checkout に書く', () =>
-  keepZenn(async () => {
+test('restore はスナップショットの zenn.json を root に書く', () =>
+  inTmp(async (root, file) => {
     const zenn = '[{"title":"t","url":"https://zenn.dev/mosida/articles/a","publishedAt":"2026-10-01T00:00:00.000Z"}]\n';
     respond = github({ zenn });
-    assert.equal(await restoreFromSnapshot('tok', 'src/data/zenn.json'), true);
-    assert.equal(await readFile(ZENN_URL, 'utf8'), zenn);
+    assert.equal(await restoreFromSnapshot('tok', 'src/data/zenn.json', root), true);
+    assert.equal(await readFile(file, 'utf8'), zenn);
     assert.deepEqual(keys(), [CONTENTS]);
   }));
 
-test('restore はスナップショットに無ければ checkout を書き換えない', async () => {
-  respond = github();
-  const before = await readFile(ZENN_URL, 'utf8');
-  assert.equal(await restoreFromSnapshot('tok', 'src/data/zenn.json'), false);
-  assert.equal(await readFile(ZENN_URL, 'utf8'), before);
-});
+test('restore はスナップショットに無ければ書かない', () =>
+  inTmp(async (root, file) => {
+    respond = github();
+    assert.equal(await restoreFromSnapshot('tok', 'src/data/zenn.json', root), false);
+    await assert.rejects(readFile(file), { code: 'ENOENT' });
+  }));
 
-test('restore は 500 なら status を含めて失敗する', async () => {
-  respond = github({ status: { [CONTENTS]: 500 } });
-  await assert.rejects(restoreFromSnapshot('tok', 'src/data/zenn.json'), { status: 500, type: 'github_status_500' });
-});
+test('restore は 500 なら status を含めて失敗する', () =>
+  inTmp(async (root) => {
+    respond = github({ status: { [CONTENTS]: 500 } });
+    await assert.rejects(restoreFromSnapshot('tok', 'src/data/zenn.json', root), { status: 500, type: 'github_status_500' });
+  }));
 
-test('restore は内容が JSON の配列でなければ書かずに失敗する', async () => {
-  const before = await readFile(ZENN_URL, 'utf8');
-  for (const zenn of ['{"a":1}', 'not json']) {
-    respond = github({ zenn });
-    await assert.rejects(restoreFromSnapshot('tok', 'src/data/zenn.json'), { stage: 'restore', type: 'invalid_snapshot' });
-  }
-  assert.equal(await readFile(ZENN_URL, 'utf8'), before);
-});
+test('restore は内容が JSON の配列でなければ書かずに失敗する', () =>
+  inTmp(async (root, file) => {
+    for (const zenn of ['{"a":1}', 'not json']) {
+      respond = github({ zenn });
+      await assert.rejects(restoreFromSnapshot('tok', 'src/data/zenn.json', root), { stage: 'restore', type: 'invalid_snapshot' });
+    }
+    await assert.rejects(readFile(file), { code: 'ENOENT' });
+  }));
 
 test('本番では fetch・restore・fetch-zenn・snapshot・build の順に進め、tree に zenn.json を含める', async () => {
   respond = github();

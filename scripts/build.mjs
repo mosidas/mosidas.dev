@@ -142,9 +142,10 @@ const toStageError = (stage, err) =>
  * content-snapshot ブランチの path を checkout の同じパスに書く。スナップショットに無ければ書かずに false を返す。
  * @param {string} token
  * @param {string} path JSON の配列を持つファイルのリポジトリ内のパス
+ * @param {URL} [root] 書き込み先の基準のディレクトリ(末尾は /)
  * @returns {Promise<boolean>} 復元したか
  */
-export async function restoreFromSnapshot(token, path) {
+export async function restoreFromSnapshot(token, path, root = ROOT) {
   const { status, data } = await github(token, 'GET', `/contents/${path}?ref=content-snapshot`, undefined, [404]);
   if (status === 404) return false;
   const invalid = new StageError('restore', 'invalid_snapshot', null, `${path} の内容が JSON の配列でない`);
@@ -155,7 +156,7 @@ export async function restoreFromSnapshot(token, path) {
   } catch {
     throw invalid;
   }
-  await writeFile(new URL(path, ROOT), content);
+  await writeFile(new URL(path, root), content);
   return true;
 }
 
