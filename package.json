@@ -18,7 +18,7 @@
     "sanitize-html": "^2.18.1"
   },
   "devDependencies": {
-    "@astrojs/check": "^0.9.10",
+    "@astrojs/check": "^0.9.12",
     "@types/sanitize-html": "^2.16.2",
     "husky": "^9.1.7",
     "typescript": "^6.0.3",
