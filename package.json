@@ -14,7 +14,7 @@
     "prepare": "husky"
   },
   "dependencies": {
-    "astro": "^7.4.0",
+    "astro": "^7.4.2",
     "sanitize-html": "^2.18.1"
   },
   "devDependencies": {
