@@ -23,3 +23,23 @@ jobs:
       - run: npm run lint
       # npm test は astro build を含む
       - run: npm test
+  betterleaks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0               # betterleaks は履歴全体を走査する
+          persist-credentials: false
+      # 公式の Action が無いため、リリースのバイナリを版と SHA-256 で固定する
+      - name: betterleaks
+        env:
+          VERSION: 1.9.0               # 版を上げるときは VERSION と SHA256 を更新する
+          SHA256: f8b185a39ffcece2a1ca82bf3a4e7435cd81963ffd16b7a9128daf75f35f6de7
+        run: |
+          curl -sSfLO "https://github.com/betterleaks/betterleaks/releases/download/v${VERSION}/betterleaks_${VERSION}_linux_x64.tar.gz"
+          echo "${SHA256}  betterleaks_${VERSION}_linux_x64.tar.gz" | sha256sum -c
+          tar -xzf "betterleaks_${VERSION}_linux_x64.tar.gz" betterleaks   # tar の README.md と LICENSE で作業ツリーを上書きしない
+          ./betterleaks git --redact .
