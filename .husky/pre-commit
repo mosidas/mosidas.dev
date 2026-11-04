@@ -1,2 +1,2 @@
 npm run lint
-gitleaks git --pre-commit --staged --redact --no-banner
+betterleaks git --pre-commit --staged --redact
