@@ -15,4 +15,4 @@ npm run lint
 npm test
 ```
 
-本番のビルド(`npm run build`)とデプロイは、main への push を受けて Cloudflare が実行する。ビルドとデプロイの設定を変えるときは、[検証の記録](docs/verification.md) の「Git 連携の手順」に従う。
+本番のビルド(`npm run build`)とデプロイは、main への push を受けて Cloudflare が実行する。ビルドとデプロイの設定を変えるときは、検証の記録の [Git 連携の手順](docs/verification.md#2-git-連携の手順) に従う。
