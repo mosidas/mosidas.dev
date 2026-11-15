@@ -141,7 +141,7 @@ const homeReady = (base) =>
   });
 
 /**
- * SIGTERM で止め、止まらなければ SIGKILL を送る。
+ * SIGTERM で止め、止まらなければ SIGKILL を送る。gone が真になった宛先には SIGKILL を送らない。
  * @param {number} target process.kill の宛先(負ならプロセスグループ)
  * @param {() => boolean} gone
  */
@@ -159,21 +159,36 @@ const terminate = async (target, gone) => {
  * @param {number} pid
  * @param {string[]} ports
  */
-const stopGroup = (pid, ports) => terminate(-pid, () => !groupAlive(pid) && ports.every((port) => listeners(port).length === 0));
+const stopGroup = async (pid, ports) => (await terminate(-pid, () => !groupAlive(pid))) && ports.every((port) => listeners(port).length === 0);
 
 /**
  * リーダーの npx だけが落ちても、グループの ID はメンバーが残る間は再利用されない(POSIX の Process ID の定義)。
  * このためリーダーでなくグループの中身で判定する。npx の command は npm が書き換えた process.title(npm exec …)なので、
  * 同じグループの node の wrangler の command で --persist-to を照合する。
+ * wrangler の本体の node が落ちると親の node 2 つも終わり、PORT を持つ workerd だけが残る(orphan)。
  * @param {Run} run
  * @param {Paths} p
- * @returns {'gone' | 'mine' | 'foreign'}
+ * @returns {'gone' | 'mine' | 'orphan' | 'foreign'}
  */
 const groupState = (run, p) => {
   const commands = out('ps', ['-ww', '-g', run.PID, '-o', 'command=']).split('\n').filter(Boolean);
   if (commands.length === 0) return 'gone';
-  return commands.some((c) => c.includes(`--persist-to ${p.data}`)) ? 'mine' : 'foreign';
+  if (commands.some((c) => c.includes(`--persist-to ${p.data}`))) return 'mine';
+  const workerd = new RegExp(`--socket-addr=entry=localhost:${run.PORT}(?!\\d)`);
+  return commands.some((c) => workerd.test(c)) ? 'orphan' : 'foreign';
 };
+
+/**
+ * @param {Run} run
+ * @param {Paths} p
+ * @returns {Record<ReturnType<typeof groupState>, string | undefined>} 状態ごとの問題。mine は問題がない
+ */
+const groupProblems = (run, p) => ({
+  gone: `グループ ${run.PID} は既に無い`,
+  mine: undefined,
+  orphan: `グループ ${run.PID} の wrangler が落ち、PORT ${run.PORT} の workerd だけが残る`,
+  foreign: `グループ ${run.PID} に --persist-to ${p.data} のプロセスも PORT ${run.PORT} の workerd もない`,
+});
 
 /**
  * workerd は npx と同じプロセスグループに入り、PORT と INSPECTOR_PORT を LISTEN する。
@@ -397,6 +412,8 @@ const COMMANDS = {
     if (spawnSync('npx', ['astro', 'build'], { cwd: ROOT, stdio: 'inherit' }).status !== 0) return 1;
     const [port, inspectorPort] = await freePorts(2);
     const base = `https://localhost:${port}`;
+    const commit = out('git', ['rev-parse', 'HEAD']);
+    const dist = await distHash();
     await mkdir(p.data, { recursive: true });
     await mkdir(p.evidence, { recursive: true });
     const log = join(p.evidence, WRANGLER_LOG);
@@ -426,8 +443,8 @@ const COMMANDS = {
       PORT: String(port),
       INSPECTOR_PORT: String(inspectorPort),
       PID: String(pid),
-      COMMIT: out('git', ['rev-parse', 'HEAD']),
-      DIST: await distHash(),
+      COMMIT: commit,
+      DIST: dist,
       EVIDENCE_DIR: p.evidence,
     };
     await writeFile(p.env, Object.entries(run).map(([k, v]) => `${k}=${v}\n`).join(''));
@@ -456,11 +473,7 @@ const COMMANDS = {
     console.log('ok run.env');
     /** @type {[string, () => (string | undefined) | Promise<string | undefined>][]} */
     const checks = [
-      ['プロセス', () => ({
-        gone: `グループ ${run.PID} にプロセスがない`,
-        foreign: `グループ ${run.PID} に --persist-to ${p.data} のプロセスがない`,
-        mine: undefined,
-      })[groupState(run, p)]],
+      ['プロセス', () => groupProblems(run, p)[groupState(run, p)]],
       ['ポート', () => ownsPorts(run)],
       ['コミット', () => {
         const head = out('git', ['rev-parse', 'HEAD']);
@@ -552,12 +565,13 @@ const COMMANDS = {
       return 0;
     }
     const state = groupState(run, p);
+    const problem = groupProblems(run, p)[state];
     if (state === 'foreign') {
-      console.log(`ng プロセス: グループ ${run.PID} に --persist-to ${p.data} のプロセスがない。何も止めない`);
+      console.log(`ng プロセス: ${problem}。何も止めない`);
       return 1;
     }
-    if (state === 'gone') console.log(`グループ ${run.PID} は既に無い`);
-    else if (!(await stopGroup(Number(run.PID), [run.PORT, run.INSPECTOR_PORT]))) {
+    if (problem) console.log(problem);
+    if (state !== 'gone' && !(await stopGroup(Number(run.PID), [run.PORT, run.INSPECTOR_PORT]))) {
       console.log(`ng 停止: グループ ${run.PID} かポート ${run.PORT}・${run.INSPECTOR_PORT} が残る`);
       return 1;
     }
