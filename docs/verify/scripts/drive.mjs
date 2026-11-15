@@ -16,6 +16,8 @@ const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const TURNSTILE_TEST_SECRET = '1x0000000000000000000000000000000AA';
 const READY_TITLE = '<title>mosida</title>';
 const USAGE = '使い方: drive.mjs <up|doctor|browser|down> <実行の ID> [操作...]';
+const WRANGLER_LOG = 'wrangler.log';
+const BROWSER_LOG = 'browser.log';
 
 /** @typedef {{ id: string, dir: string, env: string, data: string, chrome: string, chromePid: string, evidence: string }} Paths */
 /** @typedef {Record<'RUN_ID' | 'BASE' | 'PORT' | 'INSPECTOR_PORT' | 'PID' | 'COMMIT' | 'DIST' | 'EVIDENCE_DIR', string>} Run */
@@ -104,14 +106,17 @@ const freePorts = async (n) => {
   return ports;
 };
 
+/** @param {string} dir */
+const listFiles = async (dir) =>
+  (await readdir(dir, { recursive: true, withFileTypes: true }))
+    .filter((d) => d.isFile())
+    .map((d) => relative(dir, join(d.parentPath, d.name)))
+    .sort();
+
 const distHash = async () => {
   const dist = join(ROOT, 'dist');
-  const files = (await readdir(dist, { recursive: true, withFileTypes: true }))
-    .filter((d) => d.isFile())
-    .map((d) => relative(dist, join(d.parentPath, d.name)))
-    .sort();
   const hash = createHash('sha256');
-  for (const file of files) {
+  for (const file of await listFiles(dist)) {
     hash.update(`${file}\0${createHash('sha256').update(await readFile(join(dist, file))).digest('hex')}\n`);
   }
   return hash.digest('hex');
@@ -136,33 +141,38 @@ const homeReady = (base) =>
   });
 
 /**
- * @param {number} pid
- * @param {string[]} ports
+ * SIGTERM で止め、止まらなければ SIGKILL を送る。
+ * @param {number} target process.kill の宛先(負ならプロセスグループ)
+ * @param {() => boolean} gone
  */
-const stopGroup = async (pid, ports) => {
-  const gone = () => !groupAlive(pid) && ports.every((port) => listeners(port).length === 0);
-  try {
-    process.kill(-pid, 'SIGTERM');
-  } catch {}
-  if (await waitFor(gone, 15_000)) return true;
-  try {
-    process.kill(-pid, 'SIGKILL');
-  } catch {}
-  return waitFor(gone, 5_000);
+const terminate = async (target, gone) => {
+  for (const [signal, ms] of /** @type {const} */ ([['SIGTERM', 15_000], ['SIGKILL', 5_000]])) {
+    try {
+      process.kill(target, signal);
+    } catch {}
+    if (await waitFor(gone, ms)) return true;
+  }
+  return false;
 };
 
 /**
+ * @param {number} pid
+ * @param {string[]} ports
+ */
+const stopGroup = (pid, ports) => terminate(-pid, () => !groupAlive(pid) && ports.every((port) => listeners(port).length === 0));
+
+/**
+ * リーダーの npx だけが落ちても、グループの ID はメンバーが残る間は再利用されない(POSIX の Process ID の定義)。
+ * このためリーダーでなくグループの中身で判定する。npx の command は npm が書き換えた process.title(npm exec …)なので、
+ * 同じグループの node の wrangler の command で --persist-to を照合する。
  * @param {Run} run
  * @param {Paths} p
- * @returns {string | undefined} 問題。無ければこの実行が起動したプロセスグループ
+ * @returns {'gone' | 'mine' | 'foreign'}
  */
-const ownsProcess = (run, p) => {
-  const [pgid] = out('ps', ['-o', 'pgid=', '-p', run.PID]).split(/\s+/);
-  if (!pgid) return `PID ${run.PID} のプロセスがない`;
-  if (pgid !== run.PID) return `PID ${run.PID} のプロセスグループが ${pgid}`;
-  // npx の command は npm が書き換えた process.title(npm exec …)なので、同じグループの node の wrangler の command で照合する
-  const commands = out('ps', ['-ww', '-g', run.PID, '-o', 'command=']).split('\n');
-  if (!commands.some((c) => c.includes(`--persist-to ${p.data}`))) return `グループ ${run.PID} に --persist-to ${p.data} のプロセスがない`;
+const groupState = (run, p) => {
+  const commands = out('ps', ['-ww', '-g', run.PID, '-o', 'command=']).split('\n').filter(Boolean);
+  if (commands.length === 0) return 'gone';
+  return commands.some((c) => c.includes(`--persist-to ${p.data}`)) ? 'mine' : 'foreign';
 };
 
 /**
@@ -192,13 +202,6 @@ const evidencePath = (evidence, file) => {
 
 /** @param {Paths} p */
 const clean = (p) => Promise.all([p.data, p.chrome, p.chromePid, p.env].map((f) => rm(f, { recursive: true, force: true })));
-
-/** @param {string} dir */
-const listFiles = async (dir) =>
-  (await readdir(dir, { recursive: true, withFileTypes: true }))
-    .filter((d) => d.isFile())
-    .map((d) => relative(dir, join(d.parentPath, d.name)))
-    .sort();
 
 /** @typedef {{ send: (method: string, params?: object) => Promise<any>, once: (method: string, ms: number) => Promise<any> }} Cdp */
 
@@ -345,7 +348,12 @@ const parseSteps = (args, evidence) => {
     const { arity, outArg } = ACTIONS[name];
     const stepArgs = args.slice(i + 1, i + 1 + arity);
     if (stepArgs.length < arity) return { error: `${name} の引数が ${arity} 個に足りない` };
-    if (outArg !== undefined && !evidencePath(evidence, stepArgs[outArg])) return { error: `${name} の出力先が evidence の外: ${stepArgs[outArg]}` };
+    if (outArg !== undefined) {
+      const abs = evidencePath(evidence, stepArgs[outArg]);
+      if (!abs) return { error: `${name} の出力先が evidence の外: ${stepArgs[outArg]}` };
+      // macOS の既定のファイルシステムは大文字と小文字を区別しないので、小文字にして比べる
+      if ([WRANGLER_LOG, BROWSER_LOG].includes(relative(evidence, abs).toLowerCase())) return { error: `${name} の出力先が証拠のログ: ${stepArgs[outArg]}` };
+    }
     steps.push({ name, args: stepArgs });
     i += 1 + arity;
   }
@@ -368,13 +376,15 @@ const pageTarget = async (port) => {
   return target;
 };
 
-/** @param {Paths} p */
+/**
+ * @param {Paths} p
+ * @returns {Promise<boolean>} この実行の Chrome が残っていない
+ */
 const stopChrome = async (p) => {
-  if (!existsSync(p.chromePid)) return;
-  const pid = Number(readFileSync(p.chromePid, 'utf8'));
-  if (!out('ps', ['-ww', '-o', 'command=', '-p', String(pid)]).includes(`--user-data-dir=${p.chrome}`)) return;
-  process.kill(pid, 'SIGTERM');
-  await waitFor(() => out('ps', ['-o', 'pid=', '-p', String(pid)]) === '', 5_000);
+  if (!existsSync(p.chromePid)) return true;
+  const pid = readFileSync(p.chromePid, 'utf8').trim();
+  const gone = () => !out('ps', ['-ww', '-o', 'command=', '-p', pid]).includes(`--user-data-dir=${p.chrome}`);
+  return gone() || terminate(Number(pid), gone);
 };
 
 /** @type {Record<string, (p: Paths, args: string[]) => Promise<number>>} */
@@ -389,7 +399,7 @@ const COMMANDS = {
     const base = `https://localhost:${port}`;
     await mkdir(p.data, { recursive: true });
     await mkdir(p.evidence, { recursive: true });
-    const log = join(p.evidence, 'wrangler.log');
+    const log = join(p.evidence, WRANGLER_LOG);
     const fd = openSync(log, 'a');
     // wrangler の warn と error は stderr、info と Ready on は stdout に出るので、両方を同じログに書く
     const child = spawn(
@@ -429,11 +439,11 @@ const COMMANDS = {
       console.log(`ready ${base}`);
       return 0;
     }
-    await stopGroup(pid, [run.PORT, run.INSPECTOR_PORT]);
-    await rm(p.env, { force: true });
-    await rm(p.data, { recursive: true, force: true });
+    const stopped = await stopGroup(pid, [run.PORT, run.INSPECTOR_PORT]);
+    if (stopped) await clean(p);
     console.error(`起動できない。${relative(ROOT, log)} の末尾:`);
     console.error(readFileSync(log, 'utf8').split('\n').slice(-40).join('\n'));
+    if (!stopped) console.error(`グループ ${pid} かポート ${run.PORT}・${run.INSPECTOR_PORT} が残るので run.env を残す。down を実行する`);
     return 1;
   },
 
@@ -446,7 +456,11 @@ const COMMANDS = {
     console.log('ok run.env');
     /** @type {[string, () => (string | undefined) | Promise<string | undefined>][]} */
     const checks = [
-      ['プロセス', () => ownsProcess(run, p)],
+      ['プロセス', () => ({
+        gone: `グループ ${run.PID} にプロセスがない`,
+        foreign: `グループ ${run.PID} に --persist-to ${p.data} のプロセスがない`,
+        mine: undefined,
+      })[groupState(run, p)]],
       ['ポート', () => ownsPorts(run)],
       ['コミット', () => {
         const head = out('git', ['rev-parse', 'HEAD']);
@@ -514,7 +528,7 @@ const COMMANDS = {
         }
         const line = `${new Date().toISOString()} ${label} ${result}`;
         console.log(line);
-        await appendFile(join(p.evidence, 'browser.log'), `${line}\n`);
+        await appendFile(join(p.evidence, BROWSER_LOG), `${line}\n`);
         if (result !== 'ok') return 1;
       }
       return 0;
@@ -527,19 +541,23 @@ const COMMANDS = {
   },
 
   down: async (p) => {
+    if (!(await stopChrome(p))) {
+      console.log(`ng 停止: --user-data-dir=${p.chrome} の Chrome が残る`);
+      return 1;
+    }
     const run = readRun(p);
     if (!run) {
       await clean(p);
       console.log('記録されたインスタンスはない');
       return 0;
     }
-    await stopChrome(p);
-    const problem = ownsProcess(run, p);
-    if (problem) {
-      console.log(`ng プロセス: ${problem}。何も止めない`);
+    const state = groupState(run, p);
+    if (state === 'foreign') {
+      console.log(`ng プロセス: グループ ${run.PID} に --persist-to ${p.data} のプロセスがない。何も止めない`);
       return 1;
     }
-    if (!(await stopGroup(Number(run.PID), [run.PORT, run.INSPECTOR_PORT]))) {
+    if (state === 'gone') console.log(`グループ ${run.PID} は既に無い`);
+    else if (!(await stopGroup(Number(run.PID), [run.PORT, run.INSPECTOR_PORT]))) {
       console.log(`ng 停止: グループ ${run.PID} かポート ${run.PORT}・${run.INSPECTOR_PORT} が残る`);
       return 1;
     }
