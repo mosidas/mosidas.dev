@@ -82,7 +82,7 @@
   grep -a -c '\] [A-Z]* /api/' "$EVIDENCE_DIR/wrangler.log"
   ```
 
-  1 行目のコマンドは `[wrangler:info] GET /no-such-page/ 404 Not Found` で始まる行を 2 行出す。2 行は最後の操作の要求の行なので、2 行が出たことを確かめてから 2 行目のコマンドを実行する。問い合わせの操作をする前なら、2 行目のコマンドは `0` を出す。
+  1 行目のコマンドは `[wrangler:info] GET /no-such-page/ 404 Not Found` で始まる行を 2 行出す。2 行は最後の操作の要求の行なので、2 行が出たことを確かめてから 2 行目のコマンドを実行する。1 行目のコマンドが 2 行を出さなければ、1 秒ほど後に 1・2 行目のコマンドを実行し直す。問い合わせの操作をする前なら、2 行目のコマンドは `0` を出す。
 
 ## 落とし穴
 
@@ -91,5 +91,5 @@
 - `/works/` の一覧では、ナビの works のリンクにだけ `aria-current` が付く。`a[href*=works]:not([aria-current])` は一覧の行だけに一致する。詳細のページでは前後のリンクにも一致するので、詳細では前後のリンクの `aria-label` を使う。
 - 外部へのリンクを押さない。制作物の詳細の `open`、記事の行、フッターの GitHub・Zenn のアイコン、プライバシーポリシーの Cloudflare のリンクは新しいタブで外部のサイトを開く。browser は新しいタブを操作しないので、押しても観測できない。
 - 記事が無いときは記事の一覧の行(`<日付> [zenn] <題>`)の経路に届かない。空の状態の文を一覧の経路の合格に数えない。届かなかった経路として報告する。
-- `http://` から `https://` への 301 と、workers.dev から `https://mosidas.dev` への 301 には届かない。up は wrangler に `--local-upstream mosidas.dev --local-protocol https` を渡すので、Worker が受け取る要求の URL は常に `https://mosidas.dev` である。
+- `http://` から `https://` への 301 と、workers.dev から `https://mosidas.dev` への 301 には届かない。up は wrangler に `--local-upstream mosidas.dev --local-protocol https` を渡すので、Worker が受け取る要求の URL は常に `https://mosidas.dev` である。届かなかった経路として、試したコマンドと満たせなかった前提(Worker が受け取る要求の URL が `http://` か workers.dev のホストである)を報告する。
 - ナビで移動する操作は `/contact/` を開く。`/contact/` は Turnstile のウィジェットを `challenges.cloudflare.com` から読み込むので、この操作はネットワークにつながった状態で行う。

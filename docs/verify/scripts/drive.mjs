@@ -280,7 +280,7 @@ const evaluate = async (cdp, expression) => {
 const element = (selector) =>
   `(document.querySelector(${JSON.stringify(selector)}) ?? (() => { throw new Error('要素がない: ' + ${JSON.stringify(selector)}); })())`;
 
-// 読み込み中のページにクリックを送ると、ページが移らないことがある
+// 読み込み中のページへの入力とクリックは効かないことがある
 /** @param {Cdp} cdp */
 const loaded = async (cdp) => {
   const complete = () => evaluate(cdp, 'document.readyState === "complete"').catch(() => false);
@@ -294,10 +294,10 @@ const ACTIONS = {
   open: {
     arity: 1,
     run: async (cdp, run, path) => {
-      const loaded = cdp.once('Page.loadEventFired', 15_000);
+      const loadEvent = cdp.once('Page.loadEventFired', 15_000);
       const r = await cdp.send('Page.navigate', { url: new URL(path, run.BASE).href });
       if (r.errorText) throw new Error(r.errorText);
-      await loaded;
+      await loadEvent;
     },
   },
   fill: {

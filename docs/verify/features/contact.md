@@ -67,7 +67,7 @@
   grep -a -c '"app.contact.outcome":"invalid_fields","app.contact.response_format":"html"' "$EVIDENCE_DIR/wrangler.log"
   ```
 
-  curl は `400 text/html; charset=utf-8` を出す。3 行目のコマンドは `<title>送信できませんでした | mosida` と `次の項目が未入力か、形式または長さが正しくありません: 名前、メールアドレス、本文` の 2 行を出す。4 行目のコマンドは `1` を出す。
+  curl は `400 text/html; charset=utf-8` を出す。2 行目のコマンドは `<title>送信できませんでした | mosida` と `次の項目が未入力か、形式または長さが正しくありません: 名前、メールアドレス、本文` の 2 行を出す。3 行目のコマンドは `1` を出す。
 
 - **正しく入力して送る**(`contact-rejected`): `/contact/` で 3 つの項目を入力し、Turnstile のトークンが入ってから送信のボタンを押す。次のコマンドを実行する。
 
@@ -137,7 +137,7 @@
 - 空の項目はブラウザーの入力の検査(`required`)で止まり、要求を送らない。ブラウザーで項目の誤りを確かめるときは空白 1 文字を入力する。Worker は前後の空白を除いてから検査する。
 - 送信が成功する経路(通知 `送信しました`)にはローカルで届かない。up が設定するテスト用のシークレットでは、siteverify が `hostname` を `example.com` で返す。Worker は `mosidas.dev` を求めるので、正しく入力した送信は `turnstile_failed` になる。`/contact/sent/?submitted=1` の 200 は静的なページの表示であり、送信の成功に数えない。届かなかった経路として、`contact-rejected` のコマンドと満たせなかった前提(siteverify の `hostname` が `mosidas.dev`)を報告する。
 - 送信の失敗(`/contact/failed/` に当たる 503 と 502)にはローカルで届かない。up がシークレットと宛先を設定し、メールの送信の前で `turnstile_failed` になるためである。ネットワークが無いときだけ、siteverify に届かず 503 と `{"result":"failed"}`(`turnstile_unavailable`)が返る。
-- JavaScript を使わないフォームの送信(結果ページの HTML と、成功のときの 303)は browser では確かめられない。browser は JavaScript を止められないためである。`contact-api-html` の curl は応答の形を確かめるだけで、ブラウザーの経路の合格に数えない。
+- JavaScript を使わないフォームの送信(結果ページの HTML と、成功のときの 303)は browser では確かめられない。browser は JavaScript を止められないためである。`contact-api-html` の curl は応答の形を確かめるだけで、ブラウザーの経路の合格に数えない。届かなかった経路として、`contact-api-html` のコマンドと満たせなかった前提(browser で JavaScript を止める)を報告する。
 - 上限の 3 件には、項目の誤り(`invalid_fields`)と本文の誤り(`bad_body`)の要求も、ブラウザーのフォームからの送信も数える。`bad_origin` と `GET` の要求は数えない。上限で拒否された要求は数に加わらない。同じ実行の中では上限の状態が `data/` に残るので、数え直すときは新しい実行の ID で up する。
 - 通知の要素は `hidden` の属性で隠れている。`[data-result=<結果>]` は通知が隠れていても一致するので、`until` で `hidden` が外れたことを待ってから `text` を取る。
 - 要求の行と Worker のログの行は、応答が返った後に遅れて `wrangler.log` に書かれることがある。curl の直後の `grep -a -c` が期待より少ないときは、[mosidas.dev の検証の手引き](../README.md) の 3. のとおり、1 秒ほど後に同じ `grep` を実行し直す。
