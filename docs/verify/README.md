@@ -11,7 +11,7 @@
 - `/Applications/Google Chrome.app` に Google Chrome をインストール済みである。browser のサブコマンドはこの Chrome を headless で起動する。
 - 問い合わせのページ(`/contact/`)を確かめるときと `cf-turnstile-response` を付けて `POST /api/contact` を送るときはネットワークにつながっている。ページは Turnstile のウィジェットを `challenges.cloudflare.com` から読み込み、Worker は `challenges.cloudflare.com` の siteverify に問い合わせるためである。ネットワークにつながっていないと Worker の要求は siteverify に届かず、503(`turnstile_unavailable`)が返る。
 
-実行の ID を決めて起動する。実行の ID は 1 回の検証の名前で、ポート・データ・Chrome のプロファイル・証拠の保存先(`docs/verify/runs/<実行の ID>/`)をこの ID ごとに分ける。実行の ID には英数字・`.`・`_`・`-` だけを使う。`.` と `..` だけの ID は使えない。up は毎回新しい実行の ID で行う。一度 up した ID で up し直さない。`wrangler.log` と `browser.log` は追記で書かれるので、同じ ID で up し直すと前の回の行が混ざり、証拠の行の数が機能マップの観測と合わなくなる。そのため up は `evidence/` が残る ID では起動しない。
+実行の ID を決めて起動する。実行の ID は 1 回の検証の名前で、ポート・データ・Chrome のプロファイル・証拠の保存先(`docs/verify/runs/<実行の ID>/`)をこの ID ごとに分ける。実行の ID には英数字・`.`・`_`・`-` だけを使う。`.` と `..` だけの ID は使えない。up は毎回新しい実行の ID で行う。一度 up した ID で up し直さない。`wrangler.log` と `browser.log` は追記で書かれる。同じ ID で up し直すと前の up の行が混ざり、証拠の行の数が機能マップの観測と合わなくなる。そのため up は `evidence/` が残る ID では起動しない。
 
 ```sh
 RUN_ID=$(date +%Y%m%d-%H%M%S)
