@@ -140,4 +140,4 @@
 - JavaScript を使わないフォームの送信(結果ページの HTML と、成功のときの 303)は browser では確かめられない。browser は JavaScript を止められないためである。`contact-api-html` の curl は応答の形を確かめるだけで、ブラウザーの経路の合格に数えない。
 - 上限の 3 件には、項目の誤り(`invalid_fields`)と本文の誤り(`bad_body`)の要求も、ブラウザーのフォームからの送信も数える。`bad_origin` と `GET` の要求は数えない。上限で拒否された要求は数に加わらない。同じ実行の中では上限の状態が `data/` に残るので、数え直すときは新しい実行の ID で up する。
 - 通知の要素は `hidden` の属性で隠れている。`[data-result=<結果>]` は通知が隠れていても一致するので、`until` で `hidden` が外れたことを待ってから `text` を取る。
-- Worker のログの行は、応答が返った後に遅れて `wrangler.log` に書かれることがある。curl の直後の `grep -a -c` が期待より少ないときは、[mosidas.dev の検証の手引き](../README.md) の 3. のとおり、1 秒ほど後に同じ `grep` を実行し直す。
+- 要求の行と Worker のログの行は、応答が返った後に遅れて `wrangler.log` に書かれることがある。curl の直後の `grep -a -c` が期待より少ないときは、[mosidas.dev の検証の手引き](../README.md) の 3. のとおり、1 秒ほど後に同じ `grep` を実行し直す。
