@@ -9,7 +9,7 @@
 - macOS で Node.js 24.2 以上を使う。
 - `npm ci` を実行済みである。
 - `/Applications/Google Chrome.app` に Google Chrome をインストール済みである。ブラウザーの操作はこの Chrome を headless で起動する。
-- 問い合わせのページ(`/contact/`)を確かめるときはネットワークにつながっている。ページが Turnstile のウィジェットを `challenges.cloudflare.com` から読み込むためである。
+- 問い合わせのページ(`/contact/`)を確かめるとき、または `cf-turnstile-response` を付けて `POST /api/contact` を送るときは、ネットワークにつながっている。ページは Turnstile のウィジェットを、Worker は siteverify を `challenges.cloudflare.com` に求めるためである。ネットワークが無いと siteverify に届かず、503(`turnstile_unavailable`)が返る。
 
 実行の ID を決めて起動する。実行の ID には英数字・`.`・`_`・`-` だけを使う。
 
@@ -108,13 +108,13 @@ HTTP の要求は curl で送る。証明書が自己署名なので `-k` を付
 curl -sk --create-dirs -H 'Origin: https://mosidas.dev' -o "$EVIDENCE_DIR/<機能 ID>/<名前>" -w '%{http_code}\n' "$BASE/<パス>"
 ```
 
-`POST /api/contact` には次の型で送る。`--data-urlencode` は本文を送るので、要求のメソッドは POST になる。`Accept: application/json` を付けると応答の本文は `{"result":"<結果>"}` の JSON になる。付けないと結果のページ(題が `送信を確認できませんでした | mosida` など)の HTML になる。
+`POST /api/contact` には次の型で送る。`--data-urlencode` は本文を送るので、要求のメソッドは POST になる。`Accept: application/json` を付けると応答の本文は `{"result":"<結果>"}` の JSON になる。項目の誤りでは `"fields":[<項目>]` が加わる(例 `{"result":"invalid","fields":["name","email","message"]}`)。付けないと結果のページ(題が `送信を確認できませんでした | mosida` など)の HTML になる。
 
 ```sh
 curl -sk --create-dirs -H 'Origin: https://mosidas.dev' -H 'Accept: application/json' -H 'Content-Type: application/x-www-form-urlencoded' --data-urlencode 'name=<氏名>' --data-urlencode 'email=<メールアドレス>' --data-urlencode 'message=<本文>' --data-urlencode 'cf-turnstile-response=<トークン>' -o "$EVIDENCE_DIR/<機能 ID>/<名前>" -w '%{http_code}\n' "$BASE/api/contact"
 ```
 
-`name`・`email`・`message` が正しい値で、`cf-turnstile-response` が空でなく 2048 文字以下の値(例 `dummy`)なら、403 と `{"result":"rejected"}` が返り、`wrangler.log` の `app.contact.outcome` は `turnstile_failed` になる。Origin の検査を通った要求は 1 分に 3 件まで受け付ける。4 件目からは 429(`rate_limited`)が返る。
+`name`・`email`・`message` が正しい値で、`cf-turnstile-response` が空でなく 2048 文字以下の値(例 `dummy`)なら、403 と `{"result":"rejected"}` が返り、`wrangler.log` の `app.contact.outcome` は `turnstile_failed` になる。Origin の検査を通った要求は 60 秒に 3 件まで受け付ける。4 件目からは 429 と `{"result":"limited"}` が返り、`app.contact.outcome` は `rate_limited` になる。3 件には項目の誤り(`invalid_fields`)と本文の誤り(`bad_body`)の要求も数える。同じ実行の中では、問い合わせのページのフォームからの送信も同じ枠を使う。
 
 `POST /api/contact` は `Origin` が `https://mosidas.dev` でなければ 403(`bad_origin`)を返す。wrangler は `Origin` が `$BASE` と同じ要求だけ、`Origin` を `https://mosidas.dev` に書き換える。そのため `Origin: $BASE` の要求(問い合わせのページから送る要求を含む)は Origin の検査を通る。`Origin` の無い要求と別の値(例 `https://evil.example`)の要求は 403(`bad_origin`)になる。確かめられないのは `$BASE` と `https://mosidas.dev` の違いだけである。
 
@@ -206,7 +206,7 @@ kill -TERM -- "-$PID"
 ps -ww -g "$PID" -o pid,command
 ```
 
-`ps` が見出しの行(`PID COMMAND`)だけを出すまで `ps` を実行し直す。見出しの行だけになったら down をやり直す。down は `グループ <PID> は既に無い` を出して一時ファイルを削除する。
+`ps` が見出しの行(`PID COMMAND`)だけを出すまで `ps` を実行し直す。15 秒たっても見出しの行だけにならなければ止めずに、グループの中身を報告する。見出しの行だけになったら down をやり直す。down は `グループ <PID> は既に無い` を出して一時ファイルを削除する。
 
 ```sh
 docs/verify/scripts/drive.mjs down "$RUN_ID"

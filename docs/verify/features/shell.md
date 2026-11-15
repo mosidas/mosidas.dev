@@ -144,7 +144,7 @@
 - 入力欄は JavaScript が template から差し込む。`fill` の前に `until 'document.querySelector("#shell-input")'` で入力欄があることを確かめる。
 - `/` には `❯ whoami`・`mosida`・`❯ cat about.txt`・`❯ cat stack.txt`・`❯ tail news.log`・`お知らせはまだない。` の行が、`/works/` には `❯ tail works.log` の行が、`/articles/` には `記事はまだない。` の行が、端末を操作する前から画面に表示されている。スクリーンショットにこれらの文字が写っても実行の証拠にならない。判定は `[role=log]` の中(`text` で保存したファイルと `until` の式)で行う。
 - `text` で保存した履歴は、行の間に空行が入る。行を数えるときは空行を除く。
-- `sudo`・`rm`・`exit` は `help` の一覧に無いが、`command not found` を出さない。`sudo` は `mosida is not in the sudoers file. This incident will be reported.`、`rm` は `rm: 読み取り専用のサイトです。`、`exit` は `exit: 終了するには、タブを閉じてください。` を出す。未知のコマンドの確かめにはこの 3 つを使わない。
+- `sudo`・`rm`・`exit` は `help` の一覧に無いが、`command not found` を出さない。`sudo` は `mosida is not in the sudoers file. This incident will be reported.`、`rm` は `rm: 読み取り専用のサイトです。`(`-rf` のように 1 つのオプションに `r` か `R` と `f` を含めると `rm: 読み取り専用のサイトです。何も消えていません。`)、`exit` は `exit: 終了するには、タブを閉じてください。` を出す。未知のコマンドの確かめにはこの 3 つを使わない。
 - 入力欄は 200 文字までしか受け付けない。`fill` で 201 文字以上を入力すると、入力欄の値は先頭の 200 文字になる。200 文字を超えた入力に対する応答の文は画面から確かめられない。
 - 履歴は 100 件まで残る。101 件目を加えると最も古いエントリーが履歴から削除されるので、多くのコマンドを続けた後の `text` は最初のエントリーを含まない。
 - `cd` で移動するとページを読み込み直すので、履歴は空に戻る。移動した後の操作は `until` で `#shell-input` を待ってから行う。
