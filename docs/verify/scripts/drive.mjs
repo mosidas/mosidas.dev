@@ -40,6 +40,13 @@ const paths = (id) => {
 const validId = (id) => id !== undefined && /^[A-Za-z0-9._-]+$/.test(id) && id !== '.' && id !== '..';
 
 /**
+ * run.env は手引きが `. run.env` でシェルに読み込むので、値を単引用符で囲み、値の中の単引用符を '\'' にして書く。
+ * @param {Run} run
+ */
+const formatRun = (run) => Object.entries(run).map(([k, v]) => `${k}='${v.replaceAll("'", "'\\''")}'\n`).join('');
+
+/**
+ * formatRun が書いた形だけを読む。
  * @param {Paths} p
  * @returns {Run | undefined}
  */
@@ -47,10 +54,7 @@ const readRun = (p) =>
   existsSync(p.env)
     ? /** @type {Run} */ (
         Object.fromEntries(
-          readFileSync(p.env, 'utf8')
-            .split('\n')
-            .filter(Boolean)
-            .map((line) => [line.slice(0, line.indexOf('=')), line.slice(line.indexOf('=') + 1)]),
+          Array.from(readFileSync(p.env, 'utf8').matchAll(/^(\w+)='((?:[^']|'\\'')*)'$/gm), ([, k, v]) => [k, v.replaceAll("'\\''", "'")]),
         )
       )
     : undefined;
@@ -220,16 +224,32 @@ const clean = (p) => Promise.all([p.data, p.chrome, p.chromePid, p.env].map((f) 
 
 /** @typedef {{ send: (method: string, params?: object) => Promise<any>, once: (method: string, ms: number) => Promise<any> }} Cdp */
 
+class Disconnected extends Error {}
+
 /**
+ * 接続が切れると、待っている要求とイベントの待ちを Disconnected で拒否し、その後の要求もすぐ拒否する。
+ * WebSocket は閉じた後の send を黙って捨てるので、拒否しないと応答を永久に待つ。
  * @param {WebSocket} ws
  * @returns {Cdp}
  */
 const connect = (ws) => {
   let next = 0;
+  /** @type {Disconnected | undefined} */
+  let lost;
   /** @type {Map<number, { ok: (v: any) => void, ng: (e: Error) => void }>} */
   const pending = new Map();
   /** @type {Set<(m: any) => void>} */
   const events = new Set();
+  /** @type {Set<(e: Error) => void>} */
+  const eventWaiters = new Set();
+  const drop = () => {
+    lost ??= new Disconnected('CDP の接続が切れた');
+    for (const { ng } of pending.values()) ng(lost);
+    pending.clear();
+    for (const ng of eventWaiters) ng(lost);
+  };
+  ws.addEventListener('close', drop);
+  ws.addEventListener('error', drop);
   ws.addEventListener('message', (e) => {
     const m = JSON.parse(e.data);
     const waiter = pending.get(m.id);
@@ -242,23 +262,29 @@ const connect = (ws) => {
   return {
     send: (method, params = {}) =>
       new Promise((ok, ng) => {
+        if (lost) return ng(lost);
         pending.set(++next, { ok, ng });
         ws.send(JSON.stringify({ id: next, method, params }));
       }),
     once: (method, ms) => {
       const promise = new Promise((ok, ng) => {
-        /** @param {any} m */
-        const handle = (m) => {
-          if (m.method !== method) return;
+        if (lost) return ng(lost);
+        /** @param {(settle: () => void) => void} finish */
+        const finish = (settle) => {
           clearTimeout(timer);
           events.delete(handle);
-          ok(m.params);
+          eventWaiters.delete(fail);
+          settle();
         };
-        const timer = setTimeout(() => {
-          events.delete(handle);
-          ng(new Error(`${method} が ${ms / 1000} 秒で来ない`));
-        }, ms);
+        /** @param {any} m */
+        const handle = (m) => {
+          if (m.method === method) finish(() => ok(m.params));
+        };
+        /** @param {Error} e */
+        const fail = (e) => finish(() => ng(e));
+        const timer = setTimeout(() => fail(new Error(`${method} が ${ms / 1000} 秒で来ない`)), ms);
         events.add(handle);
+        eventWaiters.add(fail);
       });
       promise.catch(() => {});
       return promise;
@@ -276,6 +302,17 @@ const evaluate = async (cdp, expression) => {
   return r.result.value;
 };
 
+/**
+ * 評価の例外とページの移動中の CDP の誤りは偽に数える。接続が切れたときは待っても真にならないので投げる。
+ * @param {Cdp} cdp
+ * @param {string} expression
+ */
+const truthy = (cdp, expression) =>
+  evaluate(cdp, expression).catch((e) => {
+    if (e instanceof Disconnected) throw e;
+    return false;
+  });
+
 /** @param {string} selector */
 const element = (selector) =>
   `(document.querySelector(${JSON.stringify(selector)}) ?? (() => { throw new Error('要素がない: ' + ${JSON.stringify(selector)}); })())`;
@@ -283,7 +320,7 @@ const element = (selector) =>
 // 読み込み中のページへの入力とクリックは効かないことがある
 /** @param {Cdp} cdp */
 const loaded = async (cdp) => {
-  const complete = () => evaluate(cdp, 'document.readyState === "complete"').catch(() => false);
+  const complete = () => truthy(cdp, 'document.readyState === "complete"');
   if (!(await waitFor(complete, 15_000))) throw new Error('読み込みが 15 秒で終わらない');
 };
 
@@ -334,7 +371,7 @@ const ACTIONS = {
   until: {
     arity: 1,
     run: async (cdp, _run, expression) => {
-      const done = () => evaluate(cdp, `!!(${expression})`).catch(() => false);
+      const done = () => truthy(cdp, `!!(${expression})`);
       if (!(await waitFor(done, 15_000))) throw new Error('15 秒で真にならない');
     },
   },
@@ -419,6 +456,11 @@ const COMMANDS = {
       console.error('起動済み。doctor を実行する');
       return 1;
     }
+    // wrangler.log と browser.log は追記するので、同じ ID で up し直すと前の回の行と混ざり証拠の件数が合わなくなる
+    if (existsSync(p.evidence)) {
+      console.error('使用済みの実行の ID。新しい ID で up する');
+      return 1;
+    }
     if (spawnSync('npx', ['astro', 'build'], { cwd: ROOT, stdio: 'inherit' }).status !== 0) return 1;
     const [port, inspectorPort] = await freePorts(2);
     const base = `https://localhost:${port}`;
@@ -457,7 +499,7 @@ const COMMANDS = {
       DIST: dist,
       EVIDENCE_DIR: p.evidence,
     };
-    await writeFile(p.env, Object.entries(run).map(([k, v]) => `${k}=${v}\n`).join(''));
+    await writeFile(p.env, formatRun(run));
     const ready = await waitFor(
       async () => !groupAlive(pid) || (readFileSync(log, 'utf8').includes(`Ready on ${base}`) && (await homeReady(base))),
       90_000,

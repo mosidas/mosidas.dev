@@ -11,21 +11,22 @@
 - `/Applications/Google Chrome.app` に Google Chrome をインストール済みである。browser のサブコマンドはこの Chrome を headless で起動する。
 - 問い合わせのページ(`/contact/`)を確かめるときと `cf-turnstile-response` を付けて `POST /api/contact` を送るときはネットワークにつながっている。ページは Turnstile のウィジェットを `challenges.cloudflare.com` から読み込み、Worker は `challenges.cloudflare.com` の siteverify に問い合わせるためである。ネットワークにつながっていないと Worker の要求は siteverify に届かず、503(`turnstile_unavailable`)が返る。
 
-実行の ID を決めて起動する。実行の ID は 1 回の検証の名前で、ポート・データ・Chrome のプロファイル・証拠の保存先(`docs/verify/runs/<実行の ID>/`)をこの ID ごとに分ける。実行の ID には英数字・`.`・`_`・`-` だけを使う。`.` と `..` だけの ID は使えない。
+実行の ID を決めて起動する。実行の ID は 1 回の検証の名前で、ポート・データ・Chrome のプロファイル・証拠の保存先(`docs/verify/runs/<実行の ID>/`)をこの ID ごとに分ける。実行の ID には英数字・`.`・`_`・`-` だけを使う。`.` と `..` だけの ID は使えない。up は毎回新しい実行の ID で行う。一度 up した ID で up し直さない。`wrangler.log` と `browser.log` は追記で書かれるので、同じ ID で up し直すと前の回の行が混ざり、証拠の行の数が機能マップの観測と合わなくなる。そのため up は `evidence/` が残る ID では起動しない。
 
 ```sh
 RUN_ID=$(date +%Y%m%d-%H%M%S)
 docs/verify/scripts/drive.mjs up "$RUN_ID"
 ```
 
-最後の行に `ready https://localhost:<ポート>` が出て終了コードが 0 なら準備ができている。up は wrangler の `Ready on` の行が出て `GET /` が 200 で題 `mosida` のページを返すまで最大 90 秒待つ。準備ができないときと同じ実行の ID の `run.env` が残っているときは、次のどれかを出して終了コード 1 で終わる。
+最後の行に `ready https://localhost:<ポート>` が出て終了コードが 0 なら準備ができている。up は wrangler の `Ready on` の行が出て `GET /` が 200 で題 `mosida` のページを返すまで最大 90 秒待つ。準備ができないとき・同じ実行の ID の `run.env` が残っているとき・使用済みの実行の ID のときは、次のどれかを出して終了コード 1 で終わる。
 
 | 出力 | 状態 | 対処 |
 | :-- | :-- | :-- |
 | `npx astro build` の出力だけ | ビルドが失敗した。wrangler は起動していない | ビルドの誤りを報告する |
-| `起動できない。docs/verify/runs/<実行の ID>/evidence/wrangler.log の末尾:` とログの末尾 40 行 | 準備ができる前に wrangler が終了したか、90 秒で準備ができなかった。wrangler を止めて `run.env` を削除した | ログの末尾を報告する |
-| `起動できない。…` とログの末尾に続けて `グループ <PID> かポート <ポート>・<ポート> が残るので run.env を残す。down を実行する` | wrangler のプロセスグループかポートの LISTEN が残る | 5. の down を実行する |
+| `起動できない。docs/verify/runs/<実行の ID>/evidence/wrangler.log の末尾:` とログの末尾 40 行 | 準備ができる前に wrangler が終了したか、90 秒で準備ができなかった。wrangler を止めて `run.env` を削除した。`evidence/` は残る | ログの末尾を報告する。やり直すときは新しい実行の ID で up する |
+| `起動できない。…` とログの末尾に続けて `グループ <PID> かポート <ポート>・<ポート> が残るので run.env を残す。down を実行する` | wrangler のプロセスグループかポートの LISTEN が残る | 5. の down を実行する。やり直すときは新しい実行の ID で up する |
 | `起動済み。doctor を実行する` | 同じ実行の ID の `run.env` が残っている | 2. の健康診断を実行する |
+| `使用済みの実行の ID。新しい ID で up する` | この実行の ID の `evidence/` が残っている。ビルドも起動もしていない | `RUN_ID` に新しい値を設定して up する |
 
 別のシェルでコマンドを続けるときは `RUN_ID` に同じ値を設定し直す。3. の操作に進むときは `run.env` もそのシェルで読み込み直す。シェルの変数はシェルをまたいで残らない。
 
@@ -41,7 +42,7 @@ up は次のことを行う。
 
 ポート・データ・Chrome のプロファイルは実行の ID ごとに分かれる。`dist/` は実行の間で共有する。up・`npm test`・pre-push の hook(`npm test` を実行する)はどれも `dist/` を作り直す。そのため、別の実行が起動している間は up・`npm test`・push を実行しない。実行すると起動中の実行の健康診断で `ビルド` が ng になる。
 
-起動中の Worker は up のときに作った `dist/` を配信している。`src/` を変えたら 5. の手順で down してから up し直す。
+起動中の Worker は up のときに作った `dist/` を配信している。`src/` を変えたら 5. の手順で down し、`RUN_ID` に新しい値を設定して 1. の up をやり直す。
 
 ## 2. 健康診断
 
@@ -66,7 +67,7 @@ docs/verify/scripts/drive.mjs doctor "$RUN_ID"
 | `ビルド` | `dist/` の中身が up のときと同じである | 別の実行の up・`npm test`・push が `dist/` を作り直した |
 | `応答` | `GET /` が 200 で `<title>mosida</title>` を含む | Worker が応答しない |
 
-ng が 1 つでもあれば操作しない。5. の手順で down してから 1. の up をやり直す。サイトにはログインが無いので認証の確認は無い。
+ng が 1 つでもあれば操作しない。5. の手順で down し、`RUN_ID` に新しい値を設定して 1. の up をやり直す。サイトにはログインが無いので認証の確認は無い。
 
 ## 3. 操作
 
@@ -236,7 +237,7 @@ docs/verify/scripts/drive.mjs down "$RUN_ID"
 
 | サブコマンド | 呼び方 | 出力 | 終了コード |
 | :-- | :-- | :-- | :-- |
-| `up` | `docs/verify/scripts/drive.mjs up "$RUN_ID"` | ビルドの出力の後に `ready https://localhost:<ポート>` | 0: 準備ができた。1: 準備ができないか、起動済み |
+| `up` | `docs/verify/scripts/drive.mjs up "$RUN_ID"` | ビルドの出力の後に `ready https://localhost:<ポート>` | 0: 準備ができた。1: 準備ができないか、起動済みか、使用済みの実行の ID |
 | `doctor` | `docs/verify/scripts/drive.mjs doctor "$RUN_ID"` | 6 項目の `ok`・`ng` の行と `BASE`・`COMMIT`・`EVIDENCE_DIR` | 0: すべて ok。1: ng がある |
 | `browser` | `docs/verify/scripts/drive.mjs browser "$RUN_ID" <操作> [<操作> ...]` | 操作ごとに `<時刻> <操作と引数> ok` か `ng: <理由>` | 0: すべて ok。1: ng があるか、`run.env` が無いか、Chrome につながらない。2: 操作の書き方の誤り |
 | `down` | `docs/verify/scripts/drive.mjs down "$RUN_ID"` | `evidence: docs/verify/runs/<実行の ID>/evidence` と証拠の一覧 | 0: 止めて後始末した。1: 止められない |
