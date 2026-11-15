@@ -23,7 +23,7 @@ docs/verify/scripts/drive.mjs up "$RUN_ID"
 | 出力 | 状態 | 対処 |
 | :-- | :-- | :-- |
 | `npx astro build` の出力だけ | ビルドが失敗した。wrangler は起動していない | ビルドの誤りを報告する |
-| `起動できない。docs/verify/runs/<実行の ID>/evidence/wrangler.log の末尾:` とログの末尾 40 行 | 90 秒の間に準備ができなかった。wrangler を止めて `run.env` を削除した | ログの末尾を報告する |
+| `起動できない。docs/verify/runs/<実行の ID>/evidence/wrangler.log の末尾:` とログの末尾 40 行 | 準備ができる前に wrangler が終了したか、90 秒で準備ができなかった。wrangler を止めて `run.env` を削除した | ログの末尾を報告する |
 | `起動できない。…` とログの末尾に続けて `グループ <PID> かポート <ポート>・<ポート> が残るので run.env を残す。down を実行する` | wrangler かポートが止まらない | 5. の down を実行する |
 | `起動済み。doctor を実行する` | 同じ実行の ID の `run.env` が残っている | 2. の健康診断を実行する |
 
@@ -114,7 +114,7 @@ curl -sk --create-dirs -H 'Origin: https://mosidas.dev' -o "$EVIDENCE_DIR/<機�
 curl -sk --create-dirs -H 'Origin: https://mosidas.dev' -H 'Accept: application/json' -H 'Content-Type: application/x-www-form-urlencoded' --data-urlencode 'name=<氏名>' --data-urlencode 'email=<メールアドレス>' --data-urlencode 'message=<本文>' --data-urlencode 'cf-turnstile-response=<トークン>' -o "$EVIDENCE_DIR/<機能 ID>/<名前>" -w '%{http_code}\n' "$BASE/api/contact"
 ```
 
-`name`・`email`・`message` が正しい値なら、トークンの値によらず 403 と `{"result":"rejected"}` が返り、`wrangler.log` の `app.contact.outcome` は `turnstile_failed` になる。Origin の検査を通った要求は 1 分に 3 件まで受け付ける。4 件目からは 429(`rate_limited`)が返る。
+`name`・`email`・`message` が正しい値で、`cf-turnstile-response` が空でなく 2048 文字以下の値(例 `dummy`)なら、403 と `{"result":"rejected"}` が返り、`wrangler.log` の `app.contact.outcome` は `turnstile_failed` になる。Origin の検査を通った要求は 1 分に 3 件まで受け付ける。4 件目からは 429(`rate_limited`)が返る。
 
 `POST /api/contact` は `Origin` が `https://mosidas.dev` でなければ 403(`bad_origin`)を返す。wrangler は `Origin` が `$BASE` と同じ要求だけ、`Origin` を `https://mosidas.dev` に書き換える。そのため `Origin: $BASE` の要求(問い合わせのページから送る要求を含む)は Origin の検査を通る。`Origin` の無い要求と別の値(例 `https://evil.example`)の要求は 403(`bad_origin`)になる。確かめられないのは `$BASE` と `https://mosidas.dev` の違いだけである。
 
@@ -206,7 +206,7 @@ kill -TERM -- "-$PID"
 ps -ww -g "$PID" -o pid,command
 ```
 
-`ps` がヘッダーの行だけを出すまで繰り返し確かめてから down をやり直す。down は `グループ <PID> は既に無い` を出して一時ファイルを削除する。
+`ps` が見出しの行(`PID COMMAND`)だけを出すまで `ps` を実行し直す。見出しの行だけになったら down をやり直す。down は `グループ <PID> は既に無い` を出して一時ファイルを削除する。
 
 ```sh
 docs/verify/scripts/drive.mjs down "$RUN_ID"
@@ -220,7 +220,7 @@ docs/verify/scripts/drive.mjs down "$RUN_ID"
 
 | サブコマンド | 呼び方 | 出力 | 終了コード |
 | :-- | :-- | :-- | :-- |
-| `up` | `docs/verify/scripts/drive.mjs up "$RUN_ID"` | ビルドの出力の後に `ready https://localhost:<ポート>` | 0: 準備ができた。1: 起動できないか、起動済み |
+| `up` | `docs/verify/scripts/drive.mjs up "$RUN_ID"` | ビルドの出力の後に `ready https://localhost:<ポート>` | 0: 準備ができた。1: 準備ができないか、起動済み |
 | `doctor` | `docs/verify/scripts/drive.mjs doctor "$RUN_ID"` | 6 項目の `ok`・`ng` の行と `BASE`・`COMMIT`・`EVIDENCE_DIR` | 0: すべて ok。1: ng がある |
-| `browser` | `docs/verify/scripts/drive.mjs browser "$RUN_ID" <操作> [<操作> ...]` | 操作ごとに `<時刻> <操作と引数> ok` か `ng: <理由>` | 0: すべて ok。1: ng がある。2: 操作の書き方の誤り |
+| `browser` | `docs/verify/scripts/drive.mjs browser "$RUN_ID" <操作> [<操作> ...]` | 操作ごとに `<時刻> <操作と引数> ok` か `ng: <理由>` | 0: すべて ok。1: ng があるか、`run.env` が無い。2: 操作の書き方の誤り |
 | `down` | `docs/verify/scripts/drive.mjs down "$RUN_ID"` | `evidence: docs/verify/runs/<実行の ID>/evidence` と証拠の一覧 | 0: 止めて後始末した。1: 止められない |
