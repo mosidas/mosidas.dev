@@ -32,7 +32,7 @@ up は次のことを行う。
 - `docs/verify/runs/<実行の ID>/run.env` に実行の記録(`RUN_ID`・`BASE`・`PORT`・`INSPECTOR_PORT`・`PID`・`COMMIT`・`DIST`・`EVIDENCE_DIR`)を書く。
 - wrangler の標準出力と標準エラーを `docs/verify/runs/<実行の ID>/evidence/wrangler.log` に書く。
 
-ポート・データ・Chrome のプロファイルは実行の ID ごとに分かれるので、2 つの実行を同時に起動できる。`dist/` だけは共有である。up・`npm test`・pre-push の hook(`npm test` を実行する)はどれも `dist/` を作り直す。そのため別の実行が起動している間は up・`npm test`・push を実行しない。破ると起動中の実行の健康診断で「ビルド」が ng になる。
+ポート・データ・Chrome のプロファイルは実行の ID ごとに分かれる。`dist/` は実行の間で共有する。up・`npm test`・pre-push の hook(`npm test` を実行する)はどれも `dist/` を作り直す。そのため別の実行が起動している間は up・`npm test`・push を実行しない。破ると起動中の実行の健康診断で「ビルド」が ng になる。
 
 `src/` を変えたら 5. の手順で down してから up し直す。起動中の Worker は up のときに作った `dist/` を配信している。停止は 5. の down で行う。
 
@@ -44,7 +44,7 @@ up は次のことを行う。
 docs/verify/scripts/drive.mjs doctor "$RUN_ID"
 ```
 
-次の 6 項目が `ok <項目>` か `ng <項目>: <理由>` の行で出る。続けて `BASE`・`COMMIT`・`EVIDENCE_DIR` の値が出る。すべて ok なら終了コードは 0、1 つでも ng なら 1 である。
+次の 6 項目が `ok <項目>` か `ng <項目>: <理由>` の行で出る。続けて `BASE`・`COMMIT`・`EVIDENCE_DIR` の値が出る。すべて ok なら終了コードは 0、1 つでも ng なら 1 である。`run.env` が無いときは `ng run.env: docs/verify/runs/<実行の ID>/run.env がない` の 1 行だけを出して終了コード 1 で終わる。
 
 | 項目 | ok が示すこと | ng の主な原因 |
 | :-- | :-- | :-- |
@@ -95,10 +95,10 @@ docs/verify/scripts/drive.mjs browser "$RUN_ID" open / until 'document.querySele
 
 各操作は `<ISO 8601 の時刻> <操作と引数> ok` か `<ISO 8601 の時刻> <操作と引数> ng: <理由>` の行で標準出力と `$EVIDENCE_DIR/browser.log` に出る。終了コードはすべて ok なら 0、ng があれば 1 である。未知の操作・引数の不足・保存先の誤りは Chrome を起動する前に検出して、終了コード 2 で終わる。
 
-HTTP の要求は curl で送る。証明書が自己署名なので `-k` を付ける。
+HTTP の要求は curl で送る。証明書が自己署名なので `-k` を付ける。`--create-dirs` は保存先の `<機能 ID>/` のディレクトリを作る。付けないとディレクトリが無いときに curl は保存できず、終了コード 23 で終わる。
 
 ```sh
-curl -sk -H 'Origin: https://mosidas.dev' -o "$EVIDENCE_DIR/<機能 ID>/<名前>" -w '%{http_code}\n' "$BASE/<パス>"
+curl -sk --create-dirs -H 'Origin: https://mosidas.dev' -o "$EVIDENCE_DIR/<機能 ID>/<名前>" -w '%{http_code}\n' "$BASE/<パス>"
 ```
 
 `POST /api/contact` は `Origin` が `https://mosidas.dev` でなければ 403(`bad_origin`)を返す。ローカルでは curl が送った `Origin` の値が `https://mosidas.dev` に書き換わる。そのため `Origin` を付けない要求だけが 403 になり、値の違いは確かめられない。

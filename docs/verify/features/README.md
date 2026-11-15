@@ -18,7 +18,7 @@
 - ページの変化は決まった秒数で待たない。`until` で変化した後の状態を待つ。
 - 機能ファイルの観測する結果は、browser の呼び出しが終了コード 0 で終わったことを前提にする。`ng` の行が出たら [mosidas.dev の検証の手引き](../README.md) の 2. の健康診断を実行する。
 - コマンドは書かれたとおりに実行する。引用符とセレクターを変えない。
-- HTTP の要求は `curl -sk -H 'Origin: https://mosidas.dev'` で送る。
+- HTTP の要求は [mosidas.dev の検証の手引き](../README.md) の 3. の curl のコマンドで送る。`Origin: https://mosidas.dev` を付けて、証拠を `$EVIDENCE_DIR/<機能 ID>/` に保存する。
 - 後始末で証拠を削除しない。
 
 ## 証拠と省略の報告
