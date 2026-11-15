@@ -26,7 +26,7 @@
 
 - 共通の前提のとおり健康診断がすべて ok で、`run.env` を読み込んである。
 - この実行で、直近の 60 秒に Origin の検査を通る `POST /api/contact` を送っていない。up した直後の実行と、端末とページの閲覧だけを操作した実行はこれを満たす。
-- 箇条を書いた順に実行する。上限を確かめる箇条は自分の 4 件で上限に当て、続く箇条は 60 秒待ってから 3 件だけを送る。この順なら、どの箇条の観測も前の箇条の送信の時刻に左右されない。
+- 箇条を書いた順に実行する。上限を超える箇条は、この実行を down した後に、新しい実行の ID で up し直したインスタンスで行う。ほかの機能をこの実行で確かめるときは、問い合わせより先に済ませる。
 - ネットワークにつながっている。ページは Turnstile のウィジェットを、Worker は siteverify を `challenges.cloudflare.com` に求める。
 
 - **GET で開く**(`contact-method`): `/api/contact` をアドレスで開く。次のコマンドを実行する。
@@ -37,7 +37,7 @@
   grep -a -c '"app.contact.outcome":"method_not_allowed"' "$EVIDENCE_DIR/wrangler.log"
   ```
 
-  curl は `405 POST` を出す。2 行目のコマンドは `<title>このページは直接開けません | mosida` を、3 行目のコマンドは `1` を出す。3 行目のコマンドが `0` を出したら、1 秒後に同じコマンドを実行し直す。
+  curl は `405 POST` を出す。2 行目のコマンドは `<title>このページは直接開けません | mosida` を、3 行目のコマンドは `1` を出す。3 行目のコマンドが `0` を出したら、1 秒ほど後に同じコマンドを実行し直す。
 
 - **Origin の誤りで送る**(`contact-bad-origin`): `Origin` を付けない要求と、`Origin: https://evil.example` の要求を送る。次のコマンドを実行する。
 
@@ -59,20 +59,9 @@
 
   1 行目のコマンドは `<結果> 303 https://localhost:<ポート>/contact/` の行を 5 行出す。2 行目のコマンドは `200` を、3 行目のコマンドは `<title>送信しました | mosida` を出す。
 
-- **項目の誤りを JSON で受け、上限を超える**(`contact-api-invalid`・`contact-limited`): 空の項目を JSON の応答を求めて 4 回続けて送る。次のコマンドを実行する。
+- **Accept を付けずに送る**(`contact-api-html`): 空の項目を `Accept` を付けずに送る。次のコマンドを実行する。
 
   ```sh
-  for i in 1 2 3 4; do curl -sk --create-dirs -H 'Origin: https://mosidas.dev' -H 'Accept: application/json' -H 'Content-Type: application/x-www-form-urlencoded' --data-urlencode 'name=' --data-urlencode 'email=' --data-urlencode 'message=' -o "$EVIDENCE_DIR/contact/limit-$i.json" -w "$i %{http_code}\n" "$BASE/api/contact"; done
-  grep -a -c '"app.contact.outcome":"invalid_fields"' "$EVIDENCE_DIR/wrangler.log"
-  grep -a -c '"app.contact.outcome":"rate_limited"' "$EVIDENCE_DIR/wrangler.log"
-  ```
-
-  1 行目のコマンドは `1 400`・`2 400`・`3 400`・`4 429` の 4 行を出す。`contact/limit-1.json` は `{"result":"invalid","fields":["name","email","message"]}`、`contact/limit-4.json` は `{"result":"limited"}` である。2 行目のコマンドは `3` を、3 行目のコマンドは `1` を出す。
-
-- **Accept を付けずに送る**(`contact-api-html`): 上限の 60 秒が過ぎるのを待ってから、空の項目を `Accept` を付けずに送る。次のコマンドを実行する。
-
-  ```sh
-  sleep 60
   curl -sk --create-dirs -H 'Origin: https://mosidas.dev' -H 'Content-Type: application/x-www-form-urlencoded' --data-urlencode 'name=' --data-urlencode 'email=' --data-urlencode 'message=' -o "$EVIDENCE_DIR/contact/api-html.html" -w '%{http_code} %{content_type}\n' "$BASE/api/contact"
   grep -o -e '<title>[^<]*' -e '次の項目[^<]*' "$EVIDENCE_DIR/contact/api-html.html"
   grep -a -c '"app.contact.outcome":"invalid_fields","app.contact.response_format":"html"' "$EVIDENCE_DIR/wrangler.log"
@@ -104,7 +93,42 @@
   grep -a -o '"app.contact.outcome":"[a-z_]*"' "$EVIDENCE_DIR/wrangler.log" | sort | uniq -c
   ```
 
-  `bad_origin` が 2、`invalid_fields` が 5、`method_not_allowed` が 1、`rate_limited` が 1、`turnstile_failed` が 1 である。ほかの結果は出ない。
+  `bad_origin` が 2、`invalid_fields` が 2、`method_not_allowed` が 1、`turnstile_failed` が 1 である。ほかの結果は出ない。
+
+- **項目の誤りを JSON で受け、上限を超える**(`contact-api-invalid`・`contact-limited`): 新しい実行の ID で up し直したインスタンスで、空の項目を JSON の応答を求めて 4 回続けて送る。
+
+  インスタンスを分けるのは、上の箇条が上限を使い切っているためである。上の箇条は Origin の検査を通る `POST /api/contact` を 3 件(`Accept` を付けない送信とブラウザーの 2 回の送信)送る。同じインスタンスで続けると、その 3 件から 60 秒たつまで 1 件目から 429 になる。新しい実行の ID のインスタンスは新しい `data/` を使うので、上限の数は 0 から数え直しになる。
+
+  2 つ目の実行の ID は、1 つ目の実行の ID に `-limit` を付けたものにする。次のコマンドで 1 つ目の実行を止め、2 つ目の実行を起動する。
+
+  ```sh
+  docs/verify/scripts/drive.mjs down "$RUN_ID"
+  RUN_ID="$RUN_ID-limit"
+  docs/verify/scripts/drive.mjs up "$RUN_ID"
+  docs/verify/scripts/drive.mjs doctor "$RUN_ID"
+  . "docs/verify/runs/$RUN_ID/run.env"
+  ```
+
+  down は `evidence: docs/verify/runs/<1 つ目の実行の ID>/evidence` を出して終了コード 0 で終わる。1 つ目の実行の証拠はこのディレクトリに残る。up は最後の行に `ready https://localhost:<ポート>` を出し、doctor は 6 項目の `ok` を出す。この後の `$RUN_ID`・`$BASE`・`$EVIDENCE_DIR` は 2 つ目の実行の値である。別のシェルで続けるときは、`RUN_ID` に 2 つ目の実行の ID を設定し直して `run.env` を読み込む。
+
+  続けて次のコマンドを実行する。
+
+  ```sh
+  for i in 1 2 3 4; do curl -sk --create-dirs -H 'Origin: https://mosidas.dev' -H 'Accept: application/json' -H 'Content-Type: application/x-www-form-urlencoded' --data-urlencode 'name=' --data-urlencode 'email=' --data-urlencode 'message=' -o "$EVIDENCE_DIR/contact/limit-$i.json" -w "$i %{http_code}\n" "$BASE/api/contact"; done
+  grep -a -c '"app.contact.outcome":"invalid_fields"' "$EVIDENCE_DIR/wrangler.log"
+  grep -a -c '"app.contact.outcome":"rate_limited"' "$EVIDENCE_DIR/wrangler.log"
+  grep -a -o '"app.contact.outcome":"[a-z_]*"' "$EVIDENCE_DIR/wrangler.log" | sort | uniq -c
+  ```
+
+  1 行目のコマンドは `1 400`・`2 400`・`3 400`・`4 429` の 4 行を出す。`contact/limit-1.json` は `{"result":"invalid","fields":["name","email","message"]}`、`contact/limit-4.json` は `{"result":"limited"}` である。2 行目のコマンドは `3` を、3 行目のコマンドは `1` を出す。4 行目のコマンドは `invalid_fields` が 3、`rate_limited` が 1 の 2 行だけを出す。
+
+  最後に 2 つ目の実行を止める。
+
+  ```sh
+  docs/verify/scripts/drive.mjs down "$RUN_ID"
+  ```
+
+  down は `evidence: docs/verify/runs/<2 つ目の実行の ID>/evidence` と証拠の一覧を出して終了コード 0 で終わる。
 
 ## 落とし穴
 
@@ -116,4 +140,4 @@
 - JavaScript を使わないフォームの送信(結果ページの HTML と、成功のときの 303)は browser では確かめられない。browser は JavaScript を止められないためである。`contact-api-html` の curl は応答の形を確かめるだけで、ブラウザーの経路の合格に数えない。
 - 上限の 3 件には、項目の誤り(`invalid_fields`)と本文の誤り(`bad_body`)の要求も、ブラウザーのフォームからの送信も数える。`bad_origin` と `GET` の要求は数えない。上限で拒否された要求は数に加わらない。同じ実行の中では上限の状態が `data/` に残るので、数え直すときは新しい実行の ID で up する。
 - 通知の要素は `hidden` の属性で隠れている。`[data-result=<結果>]` は通知が隠れていても一致するので、`until` で `hidden` が外れたことを待ってから `text` を取る。
-- Worker のログの行は、応答が返った後に遅れて `wrangler.log` に書かれることがある。curl の直後の `grep -a -c` が期待より 1 つ少ないときは、1 秒後に同じ `grep` を実行し直す。実行し直しても少なければ、要求が Worker に届いていないか結果が違う。
+- Worker のログの行は、応答が返った後に遅れて `wrangler.log` に書かれることがある。curl の直後の `grep -a -c` が期待より少ないときは、[mosidas.dev の検証の手引き](../README.md) の 3. のとおり、1 秒ほど後に同じ `grep` を実行し直す。

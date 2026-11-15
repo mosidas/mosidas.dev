@@ -29,7 +29,7 @@
 - **ナビで移動する**(`pages-nav`): `/` からナビの works・articles・contact・top を順に押す。次のコマンドを実行する。
 
   ```sh
-  docs/verify/scripts/drive.mjs browser "$RUN_ID" open / click 'nav[aria-label="サイト内"] a[href="/works/"]' until 'location.pathname === "/works/" && document.readyState === "complete" && document.querySelector("[aria-current=page]").getAttribute("href") === "/works/"' shot pages/nav-works.png click 'nav[aria-label="サイト内"] a[href="/articles/"]' until 'location.pathname === "/articles/" && document.readyState === "complete" && document.querySelector("[aria-current=page]").getAttribute("href") === "/articles/"' shot pages/nav-articles.png click 'nav[aria-label="サイト内"] a[href="/contact/"]' until 'location.pathname === "/contact/" && document.readyState === "complete" && document.querySelector("[aria-current=page]").getAttribute("href") === "/contact/"' shot pages/nav-contact.png click 'nav[aria-label="サイト内"] a[href="/"]' until 'location.pathname === "/" && document.readyState === "complete" && document.querySelector("[aria-current=page]").getAttribute("href") === "/"' shot pages/nav-top.png
+  docs/verify/scripts/drive.mjs browser "$RUN_ID" open / click 'nav[aria-label="サイト内"] a[href="/works/"]' until 'location.pathname === "/works/" && document.querySelector("[aria-current=page]").getAttribute("href") === "/works/"' shot pages/nav-works.png click 'nav[aria-label="サイト内"] a[href="/articles/"]' until 'location.pathname === "/articles/" && document.querySelector("[aria-current=page]").getAttribute("href") === "/articles/"' shot pages/nav-articles.png click 'nav[aria-label="サイト内"] a[href="/contact/"]' until 'location.pathname === "/contact/" && document.querySelector("[aria-current=page]").getAttribute("href") === "/contact/"' shot pages/nav-contact.png click 'nav[aria-label="サイト内"] a[href="/"]' until 'location.pathname === "/" && document.querySelector("[aria-current=page]").getAttribute("href") === "/"' shot pages/nav-top.png
   ```
 
   4 つの `until` の行が `browser.log` で ok である。`pages/nav-works.png`・`pages/nav-articles.png`・`pages/nav-contact.png`・`pages/nav-top.png` では、移った先のナビの項目が反転した色で写る。
@@ -37,7 +37,7 @@
 - **一覧から開く**(`pages-works`): `/works/` の一覧を保存してから先頭の行を押す。次のコマンドを実行する。
 
   ```sh
-  docs/verify/scripts/drive.mjs browser "$RUN_ID" open /works/ until 'document.querySelectorAll("a[href*=works]:not([aria-current])").length > 0' text main pages/works.txt click 'a[href*=works]:not([aria-current])' until 'location.pathname !== "/works/" && document.readyState === "complete" && document.querySelector("h1").innerText === location.pathname.split("/")[2]' text h1 pages/work-first.txt shot pages/work-first.png
+  docs/verify/scripts/drive.mjs browser "$RUN_ID" open /works/ until 'document.querySelectorAll("a[href*=works]:not([aria-current])").length > 0' text main pages/works.txt click 'a[href*=works]:not([aria-current])' until 'location.pathname !== "/works/" && document.querySelector("h1").innerText === location.pathname.split("/")[2]' text h1 pages/work-first.txt shot pages/work-first.png
   ```
 
   `pages/works.txt` には `❯ tail works.log` の後に、制作物ごとに日付・`[<名前>]`・説明の 3 行が並ぶ。`pages/work-first.txt` の名前は、`pages/works.txt` の最初の `[<名前>]` の名前と同じである。`pages/work-first.png` に詳細の名前・説明・スクリーンショットが写る。
@@ -45,7 +45,7 @@
 - **前後へ移る**(`pages-pager`): 一覧の先頭の詳細から前の制作物へ移り、そこから次の制作物へ戻る。次のコマンドを実行する。
 
   ```sh
-  docs/verify/scripts/drive.mjs browser "$RUN_ID" open /works/ click 'a[href*=works]:not([aria-current])' until 'location.pathname !== "/works/" && document.readyState === "complete" && document.querySelector("h1").innerText === location.pathname.split("/")[2]' click 'a[aria-label^=前の制作物]' until 'document.readyState === "complete" && new URL(document.referrer).pathname === document.querySelector("a[aria-label^=次の制作物]").getAttribute("href")' text h1 pages/pager-prev.txt click 'a[aria-label^=次の制作物]' until 'document.readyState === "complete" && new URL(document.referrer).pathname === document.querySelector("a[aria-label^=前の制作物]").getAttribute("href")' text h1 pages/pager-next.txt
+  docs/verify/scripts/drive.mjs browser "$RUN_ID" open /works/ click 'a[href*=works]:not([aria-current])' until 'location.pathname !== "/works/" && document.querySelector("h1").innerText === location.pathname.split("/")[2]' click 'a[aria-label^=前の制作物]' until 'new URL(document.referrer).pathname === document.querySelector("a[aria-label^=次の制作物]").getAttribute("href")' text h1 pages/pager-prev.txt click 'a[aria-label^=次の制作物]' until 'new URL(document.referrer).pathname === document.querySelector("a[aria-label^=前の制作物]").getAttribute("href")' text h1 pages/pager-next.txt
   ```
 
   `pages/pager-prev.txt` の名前は `pages/works.txt` の最後の `[<名前>]` の名前と同じである。`pages/pager-next.txt` の名前は `pages/work-first.txt` と同じである。
@@ -61,7 +61,7 @@
 - **プライバシーポリシーを開く**(`pages-privacy`): `/` でフッターの `privacy policy` を押す。次のコマンドを実行する。
 
   ```sh
-  docs/verify/scripts/drive.mjs browser "$RUN_ID" open / click 'a[href="/privacy/"]' until 'location.pathname === "/privacy/" && document.readyState === "complete"' until '!document.querySelector("[aria-current]")' text h1 pages/privacy.txt shot pages/privacy.png
+  docs/verify/scripts/drive.mjs browser "$RUN_ID" open / click 'a[href="/privacy/"]' until 'location.pathname === "/privacy/"' until '!document.querySelector("[aria-current]")' text h1 pages/privacy.txt shot pages/privacy.png
   ```
 
   `pages/privacy.txt` は `プライバシーポリシー` の 1 行である。2 つ目の `until` の行が `browser.log` で ok である。
@@ -78,15 +78,14 @@
 - **要求を送らないことを確かめる**: 上の操作をすべて終えた後に `wrangler.log` を調べる。次のコマンドを実行する。
 
   ```sh
-  grep -a -c '\] [A-Z]* /api/' "$EVIDENCE_DIR/wrangler.log"
   grep -a 'GET /no-such-page/ 404' "$EVIDENCE_DIR/wrangler.log"
+  grep -a -c '\] [A-Z]* /api/' "$EVIDENCE_DIR/wrangler.log"
   ```
 
-  問い合わせの操作をする前なら、1 行目のコマンドは `0` を出す。2 行目のコマンドは `[wrangler:info] GET /no-such-page/ 404 Not Found` で始まる行を 2 行出す。
+  1 行目のコマンドは `[wrangler:info] GET /no-such-page/ 404 Not Found` で始まる行を 2 行出す。2 行は最後の操作の要求の行なので、2 行が出たことを確かめてから 2 行目のコマンドを実行する。問い合わせの操作をする前なら、2 行目のコマンドは `0` を出す。
 
 ## 落とし穴
 
-- `click` の後の `until` には `document.readyState === "complete"` の条件を書く。読み込みが終わる前のページへ次の `click` を送ると、ページが移らないことがある。そのときは次の `until` が 15 秒で ng になる。
 - 前後のリンクを押した後は、`h1` とパスの一致だけでは移った後のページか見分けられない。移る前のページも同じ条件を満たすためである。移った先の逆向きのリンクが移る前のページ(`document.referrer`)を指すことを `until` で待つ。
 - 制作物の件数と名前を決まった値で書かない。一覧は `src/data/projects.ts` から作られるので、件数と名前は `pages/works.txt` の行と比べる。
 - `/works/` の一覧では、ナビの works のリンクにだけ `aria-current` が付く。`a[href*=works]:not([aria-current])` は一覧の行だけに一致する。詳細のページでは前後のリンクにも一致するので、詳細では前後のリンクの `aria-label` を使う。

@@ -280,6 +280,13 @@ const evaluate = async (cdp, expression) => {
 const element = (selector) =>
   `(document.querySelector(${JSON.stringify(selector)}) ?? (() => { throw new Error('要素がない: ' + ${JSON.stringify(selector)}); })())`;
 
+// 読み込み中のページにクリックを送ると、ページが移らないことがある
+/** @param {Cdp} cdp */
+const loaded = async (cdp) => {
+  const complete = () => evaluate(cdp, 'document.readyState === "complete"').catch(() => false);
+  if (!(await waitFor(complete, 15_000))) throw new Error('読み込みが 15 秒で終わらない');
+};
+
 /** @typedef {{ arity: number, outArg?: number, run: (cdp: Cdp, run: Run, ...args: string[]) => Promise<void> }} Action */
 
 /** @type {Record<string, Action>} */
@@ -296,6 +303,7 @@ const ACTIONS = {
   fill: {
     arity: 2,
     run: async (cdp, _run, selector, text) => {
+      await loaded(cdp);
       await evaluate(cdp, `{ const el = ${element(selector)}; el.focus(); el.select(); }`);
       await cdp.send('Input.insertText', { text });
     },
@@ -303,6 +311,7 @@ const ACTIONS = {
   enter: {
     arity: 0,
     run: async (cdp) => {
+      await loaded(cdp);
       const key = { key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 };
       await cdp.send('Input.dispatchKeyEvent', { type: 'keyDown', ...key, text: '\r' });
       await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', ...key });
@@ -311,6 +320,7 @@ const ACTIONS = {
   click: {
     arity: 1,
     run: async (cdp, _run, selector) => {
+      await loaded(cdp);
       const { x, y } = await evaluate(
         cdp,
         `{ const el = ${element(selector)}; el.scrollIntoView({ block: 'center' }); const r = el.getBoundingClientRect(); ({ x: r.left + r.width / 2, y: r.top + r.height / 2 }); }`,

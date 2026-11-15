@@ -130,14 +130,16 @@
 
   `shell/news-log.txt` の最後の行が `お知らせはまだない。` である。
 
-- **要求を送らないことを確かめる**: 上の操作をすべて終えた後に `wrangler.log` を調べる。次のコマンドを実行する。
+- **要求を送らないことを確かめる**: 上の操作をすべて終えた後に、目印の要求を 1 つ送ってから `wrangler.log` を調べる。次のコマンドを実行する。
 
   ```sh
+  curl -sk --create-dirs -H 'Origin: https://mosidas.dev' -o "$EVIDENCE_DIR/shell/marker.html" -w '%{http_code}\n' "$BASE/shell-marker/"
+  grep -a 'GET /shell-marker/ 404' "$EVIDENCE_DIR/wrangler.log"
   grep -a -c '\] [A-Z]* /api/' "$EVIDENCE_DIR/wrangler.log"
   grep -a 'GET / 200' "$EVIDENCE_DIR/wrangler.log"
   ```
 
-  1 行目のコマンドは `0` を出す。一致が無いので grep の終了コードは 1 である。2 行目のコマンドは `[wrangler:info] GET / 200 OK` の行を 1 行以上出す。
+  curl は `404` を出す。2 行目のコマンドは `[wrangler:info] GET /shell-marker/ 404 Not Found` で始まる行を出す。目印の行は端末の操作の要求の行より後に書かれるので、この行が出たことを確かめてから 3 行目のコマンドを実行する。3 行目のコマンドは `0` を出す。一致が無いので grep の終了コードは 1 である。4 行目のコマンドは `[wrangler:info] GET / 200 OK` の行を 1 行以上出す。
 
 ## 落とし穴
 

@@ -83,14 +83,14 @@ browser は呼び出しのたびに新しい headless Chrome を起動する。�
 | 操作 | 引数 | すること | 待ち方 |
 | :-- | :-- | :-- | :-- |
 | `open` | `<パス>` | `$BASE` からのパスのページを開く | load のイベントを最大 15 秒待つ |
-| `fill` | `<セレクター> <文字列>` | 要素にフォーカスを移し、入力済みの値を選択してから文字列を入力する。値は文字列に置き換わる | 待たない |
-| `enter` | なし | フォーカスのある要素で Enter キーを押す | 待たない |
-| `click` | `<セレクター>` | 要素を画面の中央へスクロールし、要素の中心をマウスでクリックする | 待たない |
+| `fill` | `<セレクター> <文字列>` | 要素にフォーカスを移し、入力済みの値を選択してから文字列を入力する。値は文字列に置き換わる | 読み込みの完了(`document.readyState` が `complete`)を最大 15 秒待ってから操作する。操作の後の変化は待たない |
+| `enter` | なし | フォーカスのある要素で Enter キーを押す | 読み込みの完了(`document.readyState` が `complete`)を最大 15 秒待ってから操作する。操作の後の変化は待たない |
+| `click` | `<セレクター>` | 要素を画面の中央へスクロールし、要素の中心をマウスでクリックする | 読み込みの完了(`document.readyState` が `complete`)を最大 15 秒待ってから操作する。操作の後の変化は待たない |
 | `until` | `<JavaScript の式>` | 式が真になるまで 200 ミリ秒ごとに評価する。評価の例外は偽に数える | 最大 15 秒待ち、真にならなければ ng |
 | `text` | `<セレクター> <ファイル>` | 要素の `innerText` をファイルに保存する | 待たない |
 | `shot` | `<ファイル>` | 画面のスクリーンショットを PNG で保存する | 待たない |
 
-`fill`・`enter`・`click` はページの変化を待たない。ページが変わる操作の後には `until` で変わった後の状態を待つ。`<ファイル>` は `$EVIDENCE_DIR` からの相対パスで書く。`$EVIDENCE_DIR` の外と、`wrangler.log`・`browser.log` には書けない。
+`fill`・`enter`・`click` は操作の前にページの読み込みの完了を待つ。15 秒で完了しなければ `ng: 読み込みが 15 秒で終わらない` で止まる。操作の後のページの変化は待たないので、ページが変わる操作の後には `until` で変わった後の状態を待つ。`<ファイル>` は `$EVIDENCE_DIR` からの相対パスで書く。`$EVIDENCE_DIR` の外と、`wrangler.log`・`browser.log` には書けない。
 
 引用符は次のように付ける。`until` の式は外側を単引用符で囲み、式の中の文字列を二重引用符で書く。セレクターも単引用符で囲む。
 
@@ -98,7 +98,7 @@ browser は呼び出しのたびに新しい headless Chrome を起動する。�
 docs/verify/scripts/drive.mjs browser "$RUN_ID" open / until 'document.querySelector("#shell-input")' fill '#shell-input' whoami enter
 ```
 
-セレクターには id・role・aria の属性・data 属性・ルートのパス(`href` の値)だけを使う。class の名前と DOM の位置は見た目のために変わる。
+セレクターには id・role・aria の属性・data 属性・ルートのパス(`href` とフォームの `action` の値)・要素の名前(`h1`・`main`・`nav`・`a`・`form`・`button`)だけを使う。class の名前と DOM の位置は見た目のために変わる。要素の名前は見出し・ランドマーク・リンク・フォームの役割を表すので、見た目を変えても変わらない。
 
 各操作は `<ISO 8601 の時刻> <操作と引数> ok` か `<ISO 8601 の時刻> <操作と引数> ng: <理由>` の行で標準出力と `$EVIDENCE_DIR/browser.log` に出る。終了コードはすべて ok なら 0、ng があれば 1 である。未知の操作・引数の不足・保存先の誤りは Chrome を起動する前に検出して、終了コード 2 で終わる。`run.env` が無いときは `docs/verify/runs/<実行の ID>/run.env がない。up を実行する` を出して終了コード 1 で終わる。
 
@@ -127,10 +127,12 @@ grep -a '<キー>' "$EVIDENCE_DIR/wrangler.log"
 `wrangler.log` には次の行が入る。
 
 - 要求ごとに `[wrangler:info] <メソッド> <パス> <状態コード> <理由句> (<時間>)` の行が入る。
-- Worker の JSON のログ(`info`・`warn`・`error`)が入る。
+- Worker の JSON のログ(`info`・`warn`・`error`)が入る。この行は応答より遅れて書かれることがある。
 - 起動時の行が入る。この中に `/cdn-cgi/local/explorer/api/` を含む URL がある。
 
 API への要求だけを数えるには `grep -a -c '\] [A-Z]* /api/' "$EVIDENCE_DIR/wrangler.log"` を使う。`grep -a -c '/api/'` は起動時の行も数える。
+
+行の数が期待より少ないときは、1 秒ほど後に同じ `grep` を実行し直す。実行し直しても少なければ、要求が Worker に届いていないか、結果が違う。行が無いこと(0 件)は、最後に送った要求の行が `wrangler.log` に出たことを確かめてから数える。行が出る前に数えた 0 件は、書かれる前の行を見落としうる。
 
 ## 4. 証拠
 
