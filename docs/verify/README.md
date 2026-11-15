@@ -18,7 +18,14 @@ RUN_ID=$(date +%Y%m%d-%H%M%S)
 docs/verify/scripts/drive.mjs up "$RUN_ID"
 ```
 
-最後の行に `ready https://localhost:<ポート>` が出て終了コードが 0 なら準備ができている。up は wrangler の `Ready on` の行が出て、`GET /` が 200 で題 `mosida` のページを返すまで最大 90 秒待つ。起動できないときは `起動できない。docs/verify/runs/<実行の ID>/evidence/wrangler.log の末尾:` に続けてログの末尾 40 行を出し、終了コード 1 で終わる。`起動済み。doctor を実行する` と出たときは同じ実行の ID の `run.env` が残っている。2. の健康診断を実行する。
+最後の行に `ready https://localhost:<ポート>` が出て終了コードが 0 なら準備ができている。up は wrangler の `Ready on` の行が出て、`GET /` が 200 で題 `mosida` のページを返すまで最大 90 秒待つ。準備ができないときは次のどれかを出して終了コード 1 で終わる。
+
+| 出力 | 状態 | 対処 |
+| :-- | :-- | :-- |
+| `npx astro build` の出力だけ | ビルドが失敗した。wrangler は起動していない | ビルドの誤りを報告する |
+| `起動できない。docs/verify/runs/<実行の ID>/evidence/wrangler.log の末尾:` とログの末尾 40 行 | 90 秒の間に準備ができなかった。wrangler を止めて `run.env` を削除した | ログの末尾を報告する |
+| `起動できない。…` とログの末尾に続けて `グループ <PID> かポート <ポート>・<ポート> が残るので run.env を残す。down を実行する` | wrangler かポートが止まらない | 5. の down を実行する |
+| `起動済み。doctor を実行する` | 同じ実行の ID の `run.env` が残っている | 2. の健康診断を実行する |
 
 別のシェルでコマンドを続けるときは `RUN_ID` に同じ値を設定し直す。シェルの変数はシェルをまたいで残らない。
 
@@ -28,7 +35,7 @@ up は次のことを行う。
 - 空いているポートを 2 つ選び、Worker と inspector に割り当てて `wrangler dev` を起動する。
 - `wrangler dev` に `--local-upstream mosidas.dev --local-protocol https` を渡す。Worker から見た要求の URL は `https://mosidas.dev` になり、`src/worker.ts` の 301 の転送を通らない。証明書は自己署名である。
 - Worker のデータを `docs/verify/runs/<実行の ID>/data/` に保存する。
-- Turnstile のテスト用のシークレット(常に検証を通す値)と問い合わせの宛先 `CONTACT_TO` を設定する。本番のキーは使わない。
+- Turnstile のテスト用のシークレットと問い合わせの宛先 `CONTACT_TO` を設定する。本番のキーは使わない。テスト用のシークレットでは siteverify の `success` が true になるが、`hostname` が `example.com` になる。そのため Worker は `turnstile_failed` で拒否し、送信が成功する経路にはローカルでは届かない。
 - `docs/verify/runs/<実行の ID>/run.env` に実行の記録(`RUN_ID`・`BASE`・`PORT`・`INSPECTOR_PORT`・`PID`・`COMMIT`・`DIST`・`EVIDENCE_DIR`)を書く。
 - wrangler の標準出力と標準エラーを `docs/verify/runs/<実行の ID>/evidence/wrangler.log` に書く。
 
@@ -93,7 +100,7 @@ docs/verify/scripts/drive.mjs browser "$RUN_ID" open / until 'document.querySele
 
 セレクターには id・role・aria の属性・data 属性・ルートのパス(`href` の値)だけを使う。class の名前と DOM の位置は見た目のために変わる。
 
-各操作は `<ISO 8601 の時刻> <操作と引数> ok` か `<ISO 8601 の時刻> <操作と引数> ng: <理由>` の行で標準出力と `$EVIDENCE_DIR/browser.log` に出る。終了コードはすべて ok なら 0、ng があれば 1 である。未知の操作・引数の不足・保存先の誤りは Chrome を起動する前に検出して、終了コード 2 で終わる。
+各操作は `<ISO 8601 の時刻> <操作と引数> ok` か `<ISO 8601 の時刻> <操作と引数> ng: <理由>` の行で標準出力と `$EVIDENCE_DIR/browser.log` に出る。終了コードはすべて ok なら 0、ng があれば 1 である。未知の操作・引数の不足・保存先の誤りは Chrome を起動する前に検出して、終了コード 2 で終わる。`run.env` が無いときは `docs/verify/runs/<実行の ID>/run.env がない。up を実行する` を出して終了コード 1 で終わる。
 
 HTTP の要求は curl で送る。証明書が自己署名なので `-k` を付ける。`--create-dirs` は保存先の `<機能 ID>/` のディレクトリを作る。付けないとディレクトリが無いときに curl は保存できず、終了コード 23 で終わる。
 
@@ -101,7 +108,15 @@ HTTP の要求は curl で送る。証明書が自己署名なので `-k` を付
 curl -sk --create-dirs -H 'Origin: https://mosidas.dev' -o "$EVIDENCE_DIR/<機能 ID>/<名前>" -w '%{http_code}\n' "$BASE/<パス>"
 ```
 
-`POST /api/contact` は `Origin` が `https://mosidas.dev` でなければ 403(`bad_origin`)を返す。ローカルでは curl が送った `Origin` の値が `https://mosidas.dev` に書き換わる。そのため `Origin` を付けない要求だけが 403 になり、値の違いは確かめられない。
+`POST /api/contact` には次の型で送る。`--data-urlencode` は本文を送るので、要求のメソッドは POST になる。`Accept: application/json` を付けると応答の本文は `{"result":"<結果>"}` の JSON になる。付けないと結果のページ(題が `送信を確認できませんでした | mosida` など)の HTML になる。
+
+```sh
+curl -sk --create-dirs -H 'Origin: https://mosidas.dev' -H 'Accept: application/json' -H 'Content-Type: application/x-www-form-urlencoded' --data-urlencode 'name=<氏名>' --data-urlencode 'email=<メールアドレス>' --data-urlencode 'message=<本文>' --data-urlencode 'cf-turnstile-response=<トークン>' -o "$EVIDENCE_DIR/<機能 ID>/<名前>" -w '%{http_code}\n' "$BASE/api/contact"
+```
+
+`name`・`email`・`message` が正しい値なら、トークンの値によらず 403 と `{"result":"rejected"}` が返り、`wrangler.log` の `app.contact.outcome` は `turnstile_failed` になる。Origin の検査を通った要求は 1 分に 3 件まで受け付ける。4 件目からは 429(`rate_limited`)が返る。
+
+`POST /api/contact` は `Origin` が `https://mosidas.dev` でなければ 403(`bad_origin`)を返す。wrangler は `Origin` が `$BASE` と同じ要求だけ、`Origin` を `https://mosidas.dev` に書き換える。そのため `Origin: $BASE` の要求(問い合わせのページから送る要求を含む)は Origin の検査を通る。`Origin` の無い要求と別の値(例 `https://evil.example`)の要求は 403(`bad_origin`)になる。確かめられないのは `$BASE` と `https://mosidas.dev` の違いだけである。
 
 Worker のログは `wrangler.log` から引く。wrangler は ANSI の色の制御文字を出すので、`grep` には `-a` を付ける。
 
@@ -184,10 +199,16 @@ down は次の出力で終わることがある。
 ps -ww -g "$PID" -o pid,command
 ```
 
-出たプロセスがすべてこのリポジトリの `node_modules/@cloudflare/workerd-*/bin/workerd` であれば、この実行の workerd である。そのグループを止めて down をやり直す。down は `グループ <PID> は既に無い` を出して一時ファイルを削除する。
+出たプロセスがすべてこのリポジトリの `node_modules/@cloudflare/workerd-*/bin/workerd` であれば、この実行の workerd である。そのグループに SIGTERM を送る。
 
 ```sh
 kill -TERM -- "-$PID"
+ps -ww -g "$PID" -o pid,command
+```
+
+`ps` がヘッダーの行だけを出すまで繰り返し確かめてから down をやり直す。down は `グループ <PID> は既に無い` を出して一時ファイルを削除する。
+
+```sh
 docs/verify/scripts/drive.mjs down "$RUN_ID"
 ```
 

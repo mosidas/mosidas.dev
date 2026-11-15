@@ -6,9 +6,9 @@
 
 - `shell-run`: コマンドを実行し、入力の行と出力の行を履歴に加える。
 - `shell-help`: `help` で 13 のコマンドと説明の一覧を出す。
-- `shell-unknown`: 一覧に無いコマンドに `<コマンド>: command not found` を出す。
+- `shell-unknown`: `help` の一覧に無く、`sudo`・`rm`・`exit` でもないコマンドに `<コマンド>: command not found` を出す。
 - `shell-pwd`: `pwd` で開いているページに対応する場所(`/` は `/home/mosida`、`/works/` は `/home/mosida/works`、`/articles/` は `/home/mosida/articles`)を出す。
-- `shell-cd`: `cd works`・`cd articles`・`cd contact`・`cd ~` で対応するページへ移動する。引数の無い `cd` は `/` へ移動する。無いディレクトリには `cd: no such file or directory: <ディレクトリ>` を出す。
+- `shell-cd`: `cd works`・`cd articles`・`cd contact`・`cd ~` で対応するページへ移動する。引数の無い `cd` は `/` へ移動する。無いディレクトリには `cd: no such file or directory: <ディレクトリ>` を出す。引数を 2 つ以上渡すと `cd: too many arguments` を出す。
 - `shell-clear`: `clear` で履歴を空にする。
 - `shell-log`: `tail works.log` で制作物の一覧と同じ数の行を出す。記事とお知らせが無いとき、`tail articles.log` は `記事はまだない。`、`tail news.log` は `お知らせはまだない。` を出す。
 
@@ -142,8 +142,9 @@
 ## 落とし穴
 
 - 入力欄は JavaScript が template から差し込む。`fill` の前に `until 'document.querySelector("#shell-input")'` で入力欄があることを確かめる。
-- `/` には `❯ whoami` と `mosida` の行が、`/works/` には `❯ tail works.log` の行が、`/articles/` には `記事はまだない。` の行が、端末を操作する前から画面に表示されている。スクリーンショットにこれらの文字が写っても実行の証拠にならない。判定は `[role=log]` の中(`text` で保存したファイルと `until` の式)で行う。
+- `/` には `❯ whoami`・`mosida`・`❯ cat about.txt`・`❯ cat stack.txt`・`❯ tail news.log`・`お知らせはまだない。` の行が、`/works/` には `❯ tail works.log` の行が、`/articles/` には `記事はまだない。` の行が、端末を操作する前から画面に表示されている。スクリーンショットにこれらの文字が写っても実行の証拠にならない。判定は `[role=log]` の中(`text` で保存したファイルと `until` の式)で行う。
 - `text` で保存した履歴は、行の間に空行が入る。行を数えるときは空行を除く。
+- `sudo`・`rm`・`exit` は `help` の一覧に無いが、`command not found` を出さない。`sudo` は `mosida is not in the sudoers file. This incident will be reported.`、`rm` は `rm: 読み取り専用のサイトです。`、`exit` は `exit: 終了するには、タブを閉じてください。` を出す。未知のコマンドの確かめにはこの 3 つを使わない。
 - 入力欄は 200 文字までしか受け付けない。`fill` で 201 文字以上を入力すると、入力欄の値は先頭の 200 文字になる。200 文字を超えた入力に対する応答の文は画面から確かめられない。
 - 履歴は 100 件まで残る。101 件目を加えると最も古いエントリーが履歴から削除されるので、多くのコマンドを続けた後の `text` は最初のエントリーを含まない。
 - `cd` で移動するとページを読み込み直すので、履歴は空に戻る。移動した後の操作は `until` で `#shell-input` を待ってから行う。
