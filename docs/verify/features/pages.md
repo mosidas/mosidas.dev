@@ -97,4 +97,5 @@
   - フッターの GitHub と Zenn のアイコン
   - プライバシーポリシーの Cloudflare のリンク
 - 記事が無いときは記事の一覧の行(`<日付> [zenn] <題>`)の経路に届かない。空の状態の文 `記事はまだない。` を一覧の経路の合格に数えない。届かなかった経路として `pages-articles` のコマンドと満たせなかった前提(`src/data/zenn.json` に記事がある)を報告する。
+- 記号の `❯`・`↵`・`↗` は配信する webfont(`M PLUS 1`・`M PLUS 1 Code`)に字形が無く、OS のフォントで描かれる。macOS の headless Chrome では `❯` と `↵` が Menlo で、`↗` が .SF NS で描かれる。スクリーンショットで記号の字形が周りの文字と不揃いに見えるのはこのためである。実際に使われたフォントは、記号の要素に CDP の `CSS.getPlatformFontsForNode` を呼んで確かめる。browser にはこの操作が無いので、Chrome の CDP に別につないで呼ぶ。
 - `http://` から `https://` への 301 と workers.dev から `https://mosidas.dev` への 301 には届かない。up は wrangler に `--local-upstream mosidas.dev --local-protocol https` を渡すので Worker が受け取る要求の URL は常に `https://mosidas.dev` である。届かなかった経路として 2 つの 301 と満たせなかった前提(Worker が受け取る要求の URL が `http://` か workers.dev のホストである)を報告する。この経路を試すコマンドは無い。
