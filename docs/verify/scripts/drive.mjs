@@ -324,7 +324,19 @@ const loaded = async (cdp) => {
   if (!(await waitFor(complete, 15_000))) throw new Error('読み込みが 15 秒で終わらない');
 };
 
-/** @typedef {{ arity: number, outArg?: number, run: (cdp: Cdp, run: Run, ...args: string[]) => Promise<void> }} Action */
+/**
+ * headless Chrome は幅 500px 未満に縮まないので、画面の大きさはウィンドウでなく CDP のエミュレーションで決める。
+ * @param {Cdp} cdp
+ * @param {number} width
+ * @param {number} height
+ */
+const setViewport = (cdp, width, height) =>
+  cdp.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: width < 768 });
+
+/** @param {string} s */
+const positiveInt = (s) => /^[1-9]\d*$/.test(s);
+
+/** @typedef {{ arity: number, outArg?: number, check?: (...args: string[]) => string | undefined, run: (cdp: Cdp, run: Run, ...args: string[]) => Promise<void> }} Action */
 
 /** @type {Record<string, Action>} */
 const ACTIONS = {
@@ -385,6 +397,11 @@ const ACTIONS = {
       await writeFile(abs, `${text}\n`);
     },
   },
+  viewport: {
+    arity: 2,
+    check: (width, height) => (positiveInt(width) && positiveInt(height) ? undefined : `viewport の幅と高さは 1 以上の整数: ${width} ${height}`),
+    run: (cdp, _run, width, height) => setViewport(cdp, Number(width), Number(height)),
+  },
   shot: {
     arity: 1,
     outArg: 0,
@@ -407,9 +424,11 @@ const parseSteps = (args, evidence) => {
   for (let i = 0; i < args.length; ) {
     const name = args[i];
     if (!Object.hasOwn(ACTIONS, name)) return { error: `未知の操作: ${name}` };
-    const { arity, outArg } = ACTIONS[name];
+    const { arity, outArg, check } = ACTIONS[name];
     const stepArgs = args.slice(i + 1, i + 1 + arity);
     if (stepArgs.length < arity) return { error: `${name} の引数が ${arity} 個に足りない` };
+    const invalid = check?.(...stepArgs);
+    if (invalid) return { error: invalid };
     if (outArg !== undefined) {
       const abs = evidencePath(evidence, stepArgs[outArg]);
       if (!abs) return { error: `${name} の出力先が evidence の外: ${stepArgs[outArg]}` };
@@ -579,8 +598,7 @@ const COMMANDS = {
       const cdp = connect(socket);
       await cdp.send('Page.enable');
       await cdp.send('Runtime.enable');
-      // headless Chrome は幅 500px 未満に縮まないので、画面の大きさは CDP のエミュレーションで決める
-      await cdp.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
+      await setViewport(cdp, 1280, 800);
       for (const step of parsed.steps) {
         const label = [step.name, ...step.args].join(' ');
         /** @type {string} */
